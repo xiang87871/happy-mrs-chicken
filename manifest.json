@@ -1,0 +1,26 @@
+{
+  "name": "快乐小鸡·成长乐园 | Happy Mrs. Chicken",
+  "short_name": "快乐小鸡",
+  "description": "面向低龄宝宝的快乐小鸡双语启蒙与成长乐园，纯本地离线畅玩",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#74CEFF",
+  "theme_color": "#74CEFF",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

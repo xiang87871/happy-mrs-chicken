@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="skyGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#6AC8FF"/>
+      <stop offset="56%" stop-color="#BCE9FF"/>
+      <stop offset="100%" stop-color="#E2F7FF"/>
+    </linearGradient>
+    <linearGradient id="hillFrontGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#7EE05A"/>
+      <stop offset="100%" stop-color="#58BE38"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Full-bleed Storybook Sky (Maskable-Safe Canvas) -->
+  <rect width="512" height="512" fill="url(#skyGrad)"/>
+
+  <!-- Cheerful Sun -->
+  <g transform="translate(414 96)">
+    <g stroke="#FFA800" stroke-width="10" stroke-linecap="round">
+      <line x1="0" y1="-58" x2="0" y2="-44"/>
+      <line x1="0" y1="44" x2="0" y2="58"/>
+      <line x1="-58" y1="0" x2="-44" y2="0"/>
+      <line x1="44" y1="0" x2="58" y2="0"/>
+      <line x1="-41" y1="-41" x2="-31" y2="-31"/>
+      <line x1="31" y1="31" x2="41" y2="41"/>
+      <line x1="41" y1="-41" x2="31" y2="-31"/>
+      <line x1="-31" y1="31" x2="-41" y2="41"/>
+    </g>
+    <circle cx="0" cy="0" r="35" fill="#FFE14D" stroke="#F59F00" stroke-width="7"/>
+    <circle cx="-11" cy="-4" r="3.8" fill="#4A3728"/>
+    <circle cx="11" cy="-4" r="3.8" fill="#4A3728"/>
+    <path d="M-9 8Q0 16 9 8" stroke="#4A3728" stroke-width="4" stroke-linecap="round" fill="none"/>
+  </g>
+
+  <!-- Fluffy Storybook Clouds -->
+  <g transform="translate(42 74) scale(0.92)">
+    <path d="M26 58H104C115 58 122 50 122 41C122 33 116 26 107 25C104 12 92 4 78 4C66 4 56 10 51 19C47 16 42 15 37 15C24 15 14 25 14 37C9 39 6 44 6 49C6 54 11 58 26 58Z" fill="#FFFFFF" stroke="#85C4E8" stroke-width="5.5" stroke-linejoin="round"/>
+  </g>
+  <g transform="translate(362 178) scale(0.68)">
+    <path d="M26 58H104C115 58 122 50 122 41C122 33 116 26 107 25C104 12 92 4 78 4C66 4 56 10 51 19C47 16 42 15 37 15C24 15 14 25 14 37C9 39 6 44 6 49C6 54 11 58 26 58Z" fill="#FFFFFF" stroke="#85C4E8" stroke-width="6" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Rolling Storybook Green Hills -->
+  <path d="M-10 340 Q135 282 276 332 T522 318 L522 522 L-10 522 Z" fill="#A2E96E" stroke="#75C742" stroke-width="8"/>
+  <path d="M-10 374 Q180 330 356 376 T522 364 L522 522 L-10 522 Z" fill="url(#hillFrontGrad)" stroke="#56B033" stroke-width="8"/>
+
+  <!-- Cute Ground Flowers -->
+  <g transform="translate(76 410)">
+    <circle cx="0" cy="-9" r="7" fill="#FFFFFF" stroke="#4A3728" stroke-width="3"/>
+    <circle cx="9" cy="0" r="7" fill="#FFFFFF" stroke="#4A3728" stroke-width="3"/>
+    <circle cx="0" cy="9" r="7" fill="#FFFFFF" stroke="#4A3728" stroke-width="3"/>
+    <circle cx="-9" cy="0" r="7" fill="#FFFFFF" stroke="#4A3728" stroke-width="3"/>
+    <circle cx="0" cy="0" r="6" fill="#FFD43B" stroke="#4A3728" stroke-width="3"/>
+  </g>
+
+  <!-- Happy Mrs. Chicken (Centered Hero with Golden Crown & Pink Bow) -->
+  <g transform="translate(72 86) scale(2.05)">
+    <!-- Soft Ground Shadow -->
+    <ellipse cx="90" cy="163" rx="52" ry="11" fill="#3E8A22" opacity="0.28"/>
+
+    <!-- Feet -->
+    <path d="M72 138V158M72 158L60 163M72 158L72 165M72 158L82 162" stroke="#F59F00" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M108 138V158M108 158L98 162M108 158L108 165M108 158L120 163" stroke="#F59F00" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <!-- Tail Feathers -->
+    <path d="M138 92C158 76 168 88 156 105C168 106 166 122 146 120" fill="#FFD94A" stroke="#4A3728" stroke-width="4.5" stroke-linejoin="round"/>
+
+    <!-- Wings -->
+    <path d="M36 96C18 96 14 118 32 126C40 130 48 122 48 112" fill="#FFE066" stroke="#4A3728" stroke-width="4.5" stroke-linecap="round"/>
+    <path d="M134 94C152 98 154 120 136 126C126 130 120 120 122 110" fill="#FFE066" stroke="#4A3728" stroke-width="4.5" stroke-linecap="round"/>
+
+    <!-- Plump Body -->
+    <ellipse cx="90" cy="108" rx="54" ry="44" fill="#FFF3B0" stroke="#4A3728" stroke-width="5"/>
+    <ellipse cx="86" cy="116" rx="34" ry="24" fill="#FFFBE0" opacity="0.82"/>
+
+    <!-- Head -->
+    <circle cx="80" cy="64" r="34" fill="#FFF3B0" stroke="#4A3728" stroke-width="5"/>
+
+    <!-- Bright Red Comb -->
+    <path d="M62 34C58 18 72 14 78 24C82 12 97 14 96 28C106 20 115 32 102 40Z" fill="#FF4D5E" stroke="#4A3728" stroke-width="4.2" stroke-linejoin="round"/>
+
+    <!-- Golden Crown -->
+    <path d="M57 32L55 11L70 21L80 6L90 21L105 11L103 32Q80 37 57 32Z" fill="#FFD43B" stroke="#4A3728" stroke-width="3.8" stroke-linejoin="round"/>
+    <path d="M58 29Q80 34 102 29" stroke="#F59F00" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="55" cy="10" r="3.4" fill="#FFE066" stroke="#4A3728" stroke-width="2.4"/>
+    <circle cx="80" cy="5.5" r="3.8" fill="#FFE066" stroke="#4A3728" stroke-width="2.4"/>
+    <circle cx="105" cy="10" r="3.4" fill="#FFE066" stroke="#4A3728" stroke-width="2.4"/>
+    <circle cx="80" cy="24" r="4.2" fill="#FF6B9D" stroke="#4A3728" stroke-width="2.2"/>
+    <circle cx="67" cy="25" r="2.6" fill="#74C0FC" stroke="#4A3728" stroke-width="1.8"/>
+    <circle cx="93" cy="25" r="2.6" fill="#74C0FC" stroke="#4A3728" stroke-width="1.8"/>
+
+    <!-- Sparkling Eyes -->
+    <circle cx="66" cy="60" r="7.5" fill="#FFFFFF" stroke="#4A3728" stroke-width="3.2"/>
+    <circle cx="67.5" cy="60" r="4" fill="#4A3728"/>
+    <circle cx="69" cy="58" r="1.5" fill="#FFFFFF"/>
+    <circle cx="94" cy="60" r="7.5" fill="#FFFFFF" stroke="#4A3728" stroke-width="3.2"/>
+    <circle cx="92.5" cy="60" r="4" fill="#4A3728"/>
+    <circle cx="94" cy="58" r="1.5" fill="#FFFFFF"/>
+
+    <!-- Rosy Cheeks -->
+    <ellipse cx="55" cy="72" rx="7" ry="4.5" fill="#FF94C2" opacity="0.82"/>
+    <ellipse cx="105" cy="72" rx="7" ry="4.5" fill="#FF94C2" opacity="0.82"/>
+
+    <!-- Beak & Wattle -->
+    <path d="M72 68L88 68L80 82Z" fill="#FF922B" stroke="#4A3728" stroke-width="3.8" stroke-linejoin="round"/>
+    <path d="M76 82C74 91 86 91 84 82" fill="#FF4D5E" stroke="#4A3728" stroke-width="3.2" stroke-linejoin="round"/>
+
+    <!-- Signature Pink Bow -->
+    <path d="M75 99L63 92L63 106Z" fill="#FF6B9D" stroke="#4A3728" stroke-width="2.8" stroke-linejoin="round"/>
+    <path d="M85 99L97 92L97 106Z" fill="#FF6B9D" stroke="#4A3728" stroke-width="2.8" stroke-linejoin="round"/>
+    <circle cx="80" cy="99" r="5.5" fill="#FF94C2" stroke="#4A3728" stroke-width="2.8"/>
+  </g>
+
+  <!-- Cheerful Polka-Dot Egg Beside Happy Mrs. Chicken -->
+  <g transform="translate(362 344) scale(1.06)">
+    <ellipse cx="40" cy="88" rx="24" ry="6" fill="#3E8A22" opacity="0.26"/>
+    <path d="M40 8C59 8 71 36 71 58C71 76 58 88 40 88C22 88 9 76 9 58C9 36 21 8 40 8Z" fill="#FFA8D5" stroke="#4A3728" stroke-width="5.5"/>
+    <ellipse cx="28" cy="30" rx="6" ry="12" transform="rotate(-18 28 30)" fill="#FFFFFF" opacity="0.55"/>
+    <circle cx="26" cy="54" r="6.5" fill="#FFFFFF" opacity="0.88"/>
+    <circle cx="52" cy="44" r="7.5" fill="#FFE066" opacity="0.92"/>
+    <circle cx="48" cy="68" r="6" fill="#FFFFFF" opacity="0.88"/>
+    <circle cx="29" cy="72" r="5" fill="#74C0FC" opacity="0.9"/>
+  </g>
+</svg>
