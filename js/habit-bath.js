@@ -113,6 +113,7 @@
       phase: 'flavor', // 'flavor' | 'pouring' | 'scrub' | 'rinse' | 'shake' | 'dry' | 'done'
       flavor: null,
       expression: 'muddy', // 'muddy' | 'tickle' | 'rinse' | 'fluff' | 'done'
+      scrubLocked: false,
       completed: false,
       duckyQuacks: 0,
       bubblesPopped: 0,
@@ -1043,6 +1044,10 @@
       }
     }
 
+    if (HMC.audio && HMC.audio.setPrompt) {
+      HMC.audio.setPrompt(flavor.pourZh, flavor.pourEn);
+    }
+
     const enterScrub = () => {
       if (!bathState || bathState.phase !== 'pouring') return;
       if (mountContainer) {
@@ -1056,15 +1061,20 @@
       syncHabitStepIndex();
       syncSceneVisuals();
       updateStepsAndDockUI();
-      if (HMC.audio && HMC.audio.setPrompt) {
-        HMC.audio.setPrompt(flavor.pourZh, flavor.pourEn);
-      }
     };
 
     if (opts.instant) {
       enterScrub();
+    } else if (HMC.audio && typeof HMC.audio.waitForSpeechThen === 'function') {
+      const token = mountToken;
+      HMC.audio.waitForSpeechThen(
+        800,
+        enterScrub,
+        () => token === mountToken && bathState && bathState.phase === 'pouring',
+        6000
+      );
     } else {
-      schedule(enterScrub, 580);
+      schedule(enterScrub, 800);
     }
     return true;
   }
@@ -1185,7 +1195,8 @@
   }
 
   function completeScrubPhase(opts = {}) {
-    if (!bathState || bathState.phase !== 'scrub') return;
+    if (!bathState || bathState.phase !== 'scrub' || bathState.scrubLocked) return;
+    bathState.scrubLocked = true;
     stopDrag();
 
     bathState.spots.forEach(s => {
@@ -1219,8 +1230,16 @@
 
     if (opts.instant) {
       enterRinse();
+    } else if (HMC.audio && typeof HMC.audio.waitForSpeechThen === 'function') {
+      const token = mountToken;
+      HMC.audio.waitForSpeechThen(
+        800,
+        enterRinse,
+        () => token === mountToken && bathState && bathState.phase === 'scrub',
+        6000
+      );
     } else {
-      schedule(enterRinse, 520);
+      schedule(enterRinse, 800);
     }
   }
 
@@ -1323,8 +1342,16 @@
 
     if (opts.instant) {
       enterDry();
+    } else if (HMC.audio && typeof HMC.audio.waitForSpeechThen === 'function') {
+      const token = mountToken;
+      HMC.audio.waitForSpeechThen(
+        800,
+        enterDry,
+        () => token === mountToken && bathState && bathState.phase === 'shake',
+        6000
+      );
     } else {
-      schedule(enterDry, 750);
+      schedule(enterDry, 800);
     }
   }
 
@@ -1423,17 +1450,16 @@
     if (HMC.effects && HMC.effects.burstConfetti) {
       HMC.effects.burstConfetti(42);
     }
-    if (HMC.effects && HMC.effects.awardStar) {
-      HMC.effects.awardStar();
-    }
+    const isParty = (HMC.effects && HMC.effects.awardStar) ? HMC.effects.awardStar() : false;
     if (HMC.storage && HMC.storage.recordAttempt) {
       HMC.storage.recordAttempt('play_habits', true);
     }
-    if (HMC.audio && HMC.audio.praiseWithPrompt) {
-      HMC.audio.praiseWithPrompt(
-        '洗白白吹蓬松，香喷喷的爱干净好宝宝！',
-        'Squeaky clean and fluffy! What a great helper!'
-      );
+    const praiseZh = '洗白白吹蓬松，香喷喷的，你真棒！';
+    const praiseEn = 'Squeaky clean and fluffy! What a great helper!';
+    if (isParty && HMC.audio && HMC.audio.setPrompt) {
+      HMC.audio.setPrompt(praiseZh, praiseEn, false);
+    } else if (HMC.audio && HMC.audio.praiseWithPrompt) {
+      HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
     }
   }
 
@@ -1983,6 +2009,9 @@
     mountToken++;
     stopDrag();
     clearAllTimers();
+    if (HMC.audio && typeof HMC.audio.cancelPendingTransitions === 'function') {
+      HMC.audio.cancelPendingTransitions();
+    }
     activeBubbleCount = 0;
     mountContainer = null;
     mountOpts = {};

@@ -140,6 +140,7 @@
       flavor: FLAVORS[0], // Strawberry pre-selected!
       pastePct: 0,
       pasteLocked: false,
+      brushLocked: false,
       germs: GERMS.map(g => ({
         id: g.id,
         toothId: g.toothId,
@@ -157,6 +158,7 @@
       gargling: false,
       rinsedClean: false,
       plushie: null,
+      plushieLocked: false,
       quiltPct: 0,
       quiltLocked: false,
       lampPullPx: 0,
@@ -1605,8 +1607,16 @@
 
     if (opts.instant) {
       enterBrush();
+    } else if (HMC.audio && typeof HMC.audio.waitForSpeechThen === 'function') {
+      const token = mountToken;
+      HMC.audio.waitForSpeechThen(
+        800,
+        enterBrush,
+        () => token === mountToken && bedState && bedState.phase === 'paste',
+        6000
+      );
     } else {
-      schedule(enterBrush, 520);
+      schedule(enterBrush, 800);
     }
   }
 
@@ -1694,7 +1704,8 @@
   }
 
   function enterGargleSubStep(opts = {}) {
-    if (!bedState || bedState.phase !== 'brush') return;
+    if (!bedState || bedState.phase !== 'brush' || bedState.brushLocked) return;
+    bedState.brushLocked = true;
     stopActiveDrag();
 
     if (HMC.audio && HMC.audio.SFX && HMC.audio.SFX.success) {
@@ -1718,8 +1729,16 @@
 
     if (opts.instant) {
       switchToGargle();
+    } else if (HMC.audio && typeof HMC.audio.waitForSpeechThen === 'function') {
+      const token = mountToken;
+      HMC.audio.waitForSpeechThen(
+        700,
+        switchToGargle,
+        () => token === mountToken && bedState && bedState.phase === 'brush',
+        6000
+      );
     } else {
-      schedule(switchToGargle, 500);
+      schedule(switchToGargle, 700);
     }
   }
 
@@ -1772,6 +1791,14 @@
 
       if (opts.instant) {
         enterBedroom();
+      } else if (HMC.audio && typeof HMC.audio.waitForSpeechThen === 'function') {
+        const token = mountToken;
+        HMC.audio.waitForSpeechThen(
+          900,
+          enterBedroom,
+          () => token === mountToken && bedState && bedState.phase === 'gargle',
+          6000
+        );
       } else {
         schedule(enterBedroom, 900);
       }
@@ -1789,21 +1816,19 @@
      Step 3 Mechanics: Plushie Buddy + Vertical Upward Starry Quilt Pull
      ======================================================================== */
 
-  function selectPlushie(plushieId) {
-    if (!bedState || bedState.phase !== 'plushie') return false;
+  function selectPlushie(plushieId, opts = {}) {
+    if (!bedState || bedState.phase !== 'plushie' || bedState.plushieLocked) return false;
     const p = PLUSHIE_BY_ID[plushieId];
     if (!p) return false;
 
     stopActiveDrag();
+    bedState.plushieLocked = true;
     bedState.plushie = p;
-    bedState.phase = 'quilt';
-    syncHabitStepIndex();
+    syncSceneVisuals();
 
     if (HMC.audio && HMC.audio.SFX && HMC.audio.SFX.pop) {
       HMC.audio.SFX.pop();
     }
-    syncSceneVisuals();
-    updateStepsAndDockUI();
 
     spawnStagePop('💖', 208, 108, '#FF6B9D');
     spawnStagePop('✨', 252, 118, '#FFD43B');
@@ -1812,8 +1837,32 @@
     if (HMC.audio && HMC.audio.setPrompt) {
       HMC.audio.setPrompt(
         `有${p.zh}陪着，好安心呀！现在抓住被角往上拉，帮小鸡盖好被子吧！`,
-        `So cozy with ${p.en}! Pull the starry blanket up!`
+        `So cozy with ${p.en}! Pull the starry blanket up!`,
+        true,
+        { voiceStyle: 'bedtime' }
       );
+    }
+
+    const enterQuilt = () => {
+      if (!bedState || bedState.phase !== 'plushie') return;
+      bedState.phase = 'quilt';
+      syncHabitStepIndex();
+      syncSceneVisuals();
+      updateStepsAndDockUI();
+    };
+
+    if (opts.instant) {
+      enterQuilt();
+    } else if (HMC.audio && typeof HMC.audio.waitForSpeechThen === 'function') {
+      const token = mountToken;
+      HMC.audio.waitForSpeechThen(
+        750,
+        enterQuilt,
+        () => token === mountToken && bedState && bedState.phase === 'plushie',
+        6000
+      );
+    } else {
+      schedule(enterQuilt, 750);
     }
     return true;
   }
@@ -1850,17 +1899,14 @@
     return setQuiltPct(next, opts);
   }
 
-  function completeQuiltPull() {
+  function completeQuiltPull(opts = {}) {
     if (!bedState || bedState.phase !== 'quilt' || bedState.quiltLocked) return;
     stopActiveDrag();
 
     bedState.quiltPct = 100;
     bedState.quiltLocked = true;
     bedState.chickBedroomExpr = 'yawn';
-    bedState.phase = 'lamp';
-    syncHabitStepIndex();
     syncSceneVisuals();
-    updateStepsAndDockUI();
 
     if (HMC.audio && HMC.audio.SFX && typeof HMC.audio.SFX.yawn === 'function') {
       HMC.audio.SFX.yawn();
@@ -1871,8 +1917,32 @@
     if (HMC.audio && HMC.audio.setPrompt) {
       HMC.audio.setPrompt(
         '啊～暖暖的小被子真舒服！最后往下拉一下灯绳关灯吧！',
-        'Yawn~ So warm and cozy! Pull the star cord down to turn off the light!'
+        'Yawn~ So warm and cozy! Pull the star cord down to turn off the light!',
+        true,
+        { voiceStyle: 'bedtime' }
       );
+    }
+
+    const enterLamp = () => {
+      if (!bedState || bedState.phase !== 'quilt') return;
+      bedState.phase = 'lamp';
+      syncHabitStepIndex();
+      syncSceneVisuals();
+      updateStepsAndDockUI();
+    };
+
+    if (opts.instant) {
+      enterLamp();
+    } else if (HMC.audio && typeof HMC.audio.waitForSpeechThen === 'function') {
+      const token = mountToken;
+      HMC.audio.waitForSpeechThen(
+        800,
+        enterLamp,
+        () => token === mountToken && bedState && bedState.phase === 'quilt',
+        6000
+      );
+    } else {
+      schedule(enterLamp, 800);
     }
   }
 
@@ -1928,17 +1998,16 @@
     if (HMC.effects && HMC.effects.burstConfetti) {
       HMC.effects.burstConfetti(36);
     }
-    if (HMC.effects && HMC.effects.awardStar) {
-      HMC.effects.awardStar();
-    }
+    const isParty = (HMC.effects && HMC.effects.awardStar) ? HMC.effects.awardStar() : false;
     if (HMC.storage && HMC.storage.recordAttempt) {
       HMC.storage.recordAttempt('play_habits', true);
     }
-    if (HMC.audio && HMC.audio.praiseWithPrompt) {
-      HMC.audio.praiseWithPrompt(
-        '刷完牙盖好被子关上灯，晚安好梦哟！',
-        'Sparkling teeth, cozy blanket, lights out — sweet dreams!'
-      );
+    const praiseZh = '刷完牙盖好被子关上灯，晚安好梦哟！';
+    const praiseEn = 'Sparkling teeth, cozy blanket, lights out — sweet dreams!';
+    if (isParty && HMC.audio && HMC.audio.setPrompt) {
+      HMC.audio.setPrompt(praiseZh, praiseEn, false, { voiceStyle: 'bedtime' });
+    } else if (HMC.audio && HMC.audio.praiseWithPrompt) {
+      HMC.audio.praiseWithPrompt(praiseZh, praiseEn, { voiceStyle: 'bedtime' });
     }
     return true;
   }
@@ -2548,6 +2617,9 @@
     mountToken++;
     stopActiveDrag();
     clearAllTimers();
+    if (HMC.audio && typeof HMC.audio.cancelPendingTransitions === 'function') {
+      HMC.audio.cancelPendingTransitions();
+    }
     mountContainer = null;
     mountOpts = {};
   }

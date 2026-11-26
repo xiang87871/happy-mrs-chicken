@@ -8,6 +8,13 @@
     const classicMiniCountsEl = document.getElementById('classicMiniCounts');
     const classicFabsEl = document.getElementById('classicFabs');
 
+    if (HMC.audio && typeof HMC.audio.cancelPendingTransitions === 'function') {
+      HMC.audio.cancelPendingTransitions();
+    }
+    if (HMC.audio && typeof HMC.audio.stopAllSpeech === 'function') {
+      HMC.audio.stopAllSpeech();
+    }
+
     state.mode = newMode;
     const isClassic = newMode === 'classic';
     appShellEl.classList.toggle('mode-classic', isClassic);
@@ -170,7 +177,9 @@
       promptBubble.addEventListener('click', (e) => {
         e.stopPropagation();
         HMC.audio.SFX.pop();
-        HMC.audio.speak(state.lastPromptZh, state.lastPromptEn);
+        HMC.audio.speak(state.lastPromptZh, state.lastPromptEn, {
+          voiceStyle: state.lastPromptVoiceStyle || 'daily'
+        });
       });
     }
 
@@ -196,8 +205,12 @@
         e.currentTarget.textContent = state.soundOn ? '🔊' : '🔇';
         if (HMC.storage) HMC.storage.savePrefs({ soundOn: state.soundOn });
         if (!state.soundOn) {
-          if (HMC.audio && HMC.audio.stopParentClip) HMC.audio.stopParentClip();
-          if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+          if (HMC.audio && typeof HMC.audio.stopAllSpeech === 'function') {
+            HMC.audio.stopAllSpeech();
+          } else {
+            if (HMC.audio && HMC.audio.stopParentClip) HMC.audio.stopParentClip();
+            if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+          }
         } else {
           HMC.audio.SFX.pop();
         }
@@ -241,7 +254,9 @@
         }
       } else if (e.key === ' ') {
         e.preventDefault();
-        HMC.audio.speak(state.lastPromptZh, state.lastPromptEn);
+        HMC.audio.speak(state.lastPromptZh, state.lastPromptEn, {
+          voiceStyle: state.lastPromptVoiceStyle || 'daily'
+        });
       } else if (state.mode === 'play' && state.playSubMode === 'piano' && ['1', '2', '3', '4', '5', '6', '7'].includes(e.key)) {
         e.preventDefault();
         if (HMC.modes.play && HMC.modes.play.triggerPianoKey) {

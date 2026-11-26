@@ -256,10 +256,10 @@
   const NURSERY_SONG_BY_ID = Object.fromEntries(NURSERY_SONGS.map(s => [s.id, s]));
 
   const VOICE_SLOTS = [
-    { id: 'praise', icon: '🌟', title: '答对夸奖',   hintTpl: '例：“{nick}真棒！答对啦！”' },
+    { id: 'praise', icon: '🌟', title: '答对夸奖',   hintTpl: '例：“你真棒！答对啦！”' },
     { id: 'lay',    icon: '🥚', title: '下蛋咯咯哒', hintTpl: '例：“咯咯哒！快乐小鸡下蛋啦！”' },
-    { id: 'party',  icon: '🎉', title: '集星开派对', hintTpl: '例：“{nick}太厉害啦，开派对咯！”' },
-    { id: 'sleep',  icon: '🌙', title: '护眼说晚安', hintTpl: '例：“小鸡睡觉咯，{nick}晚安！”' }
+    { id: 'party',  icon: '🎉', title: '集星开派对', hintTpl: '例：“太厉害啦，开派对咯！”' },
+    { id: 'sleep',  icon: '🌙', title: '护眼说晚安', hintTpl: '例：“小鸡睡觉咯，晚安哟！”' }
   ];
   const VOICE_SLOT_BY_ID = Object.fromEntries(VOICE_SLOTS.map(s => [s.id, s]));
 
@@ -325,6 +325,7 @@
     totalStars: 0,
     lastPromptZh: '',
     lastPromptEn: '',
+    lastPromptVoiceStyle: 'daily',
     classicItems: [],
     classicLayCount: 0,
     chickenX: 50,

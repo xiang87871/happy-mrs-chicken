@@ -30,6 +30,9 @@
       MATH_SUB_ITEMS,
       sub,
       (nextSub) => {
+        if (HMC.audio && typeof HMC.audio.cancelPendingTransitions === 'function') {
+          HMC.audio.cancelPendingTransitions();
+        }
         state.mathSubMode = nextSub;
         state.mathLocked = false;
         state.feedLocked = false;
@@ -159,15 +162,19 @@
         HMC.audio.SFX.cheep();
         HMC.effects.burstConfetti(30);
         HMC.effects.spawnFloatingWord(`❤️ 刚好 ${r.target} 颗！`, window.innerWidth / 2, window.innerHeight * 0.38, '#FF5D6C');
-        HMC.effects.awardStar();
-        HMC.audio.praiseWithPrompt(`哇！刚刚好 ${r.target} 颗玉米，真聪明！`, `Yum! Exactly ${r.target} corn!`);
+        const isParty = HMC.effects.awardStar();
+        const praiseZh = `哇！刚刚好 ${r.target} 颗玉米，真聪明！`;
+        const praiseEn = `Yum! Exactly ${r.target} corn!`;
+        if (isParty) HMC.audio.setPrompt(praiseZh, praiseEn, false);
+        else HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
+        HMC.audio.waitForSpeechThen(
+          1300,
+          () => {
+            renderFeedSubMode(true);
+          },
+          () => state.mode === 'counting' && state.mathSubMode === 'feed' && state.feedRound === r
+        );
       }, 180);
-
-      setTimeout(() => {
-        if (state.mode === 'counting' && state.mathSubMode === 'feed' && state.feedRound === r) {
-          renderFeedSubMode(true);
-        }
-      }, 2200);
     } else {
       renderFeedSubMode(false);
       const chickEl = document.getElementById('hungryChick');
@@ -354,18 +361,20 @@
       setTimeout(() => HMC.audio.SFX.cheep(), 200);
       HMC.effects.burstConfetti(28);
       HMC.effects.spawnFloatingWord(`⭐ 刚刚好！`, x, y - 24, '#FF922B');
-      HMC.effects.awardStar();
+      const isParty = HMC.effects.awardStar();
       renderSizeMatch(false);
-      HMC.audio.praiseWithPrompt(
-        `太棒啦！${target.eggZh}住进${target.nestZh}里，刚刚好！`,
-        `Perfect! The ${target.en} egg fits the ${target.en} nest!`
-      );
-      setTimeout(() => {
-        if (state.mode === 'counting' && state.mathSubMode === 'size' && state.sizeRound === r) {
+      const praiseZh = `太棒啦！${target.eggZh}住进${target.nestZh}里，刚刚好！`;
+      const praiseEn = `Perfect! The ${target.en} egg fits the ${target.en} nest!`;
+      if (isParty) HMC.audio.setPrompt(praiseZh, praiseEn, false);
+      else HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
+      HMC.audio.waitForSpeechThen(
+        1300,
+        () => {
           HMC.audio.SFX.cluck();
           renderSizeSubMode(true);
-        }
-      }, 2050);
+        },
+        () => state.mode === 'counting' && state.mathSubMode === 'size' && state.sizeRound === r
+      );
     } else {
       state.mathWrongCount++;
       HMC.audio.SFX.boing();
@@ -522,22 +531,24 @@
           HMC.audio.SFX.success();
           HMC.audio.SFX.cheep();
           HMC.effects.burstConfetti(34);
-          HMC.effects.awardStar();
+          const isParty = HMC.effects.awardStar();
           const praiseZh = r.count === 4
             ? '排得真整齐，从小到大一二三四！'
             : '排得真整齐，从小到大一二三！';
           const praiseEn = r.count === 4
             ? 'So neat! Smallest to biggest, one two three four!'
             : 'So neat! Smallest to biggest, one two three!';
-          HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
+          if (isParty) HMC.audio.setPrompt(praiseZh, praiseEn, false);
+          else HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
+          HMC.audio.waitForSpeechThen(
+            1400,
+            () => {
+              HMC.audio.SFX.cluck();
+              renderSizeSubMode(true);
+            },
+            () => state.mode === 'counting' && state.mathSubMode === 'size' && state.sizeRound === r
+          );
         }, 180);
-
-        setTimeout(() => {
-          if (state.mode === 'counting' && state.mathSubMode === 'size' && state.sizeRound === r) {
-            HMC.audio.SFX.cluck();
-            renderSizeSubMode(true);
-          }
-        }, 2350);
       } else {
         renderSizeOrder(false);
         HMC.audio.speak(
@@ -794,18 +805,20 @@
       setTimeout(() => HMC.audio.SFX.cheep(), 200);
       HMC.effects.burstConfetti(32);
       HMC.effects.spawnFloatingWord(`⭐ 等于 ${r.ans}！`, x, y - 24, '#51CF66');
-      HMC.effects.awardStar();
+      const isParty = HMC.effects.awardStar();
       renderAddSubSubMode(false);
-      HMC.audio.praiseWithPrompt(
-        `答对啦！${r.a} ${r.op === '+' ? '加' : '减'} ${r.b} 等于 ${r.ans}！`,
-        `Correct! ${r.a} ${r.op === '+' ? 'plus' : 'minus'} ${r.b} equals ${r.ans}!`
-      );
-      setTimeout(() => {
-        if (state.mode === 'counting' && state.mathSubMode === 'addsub' && state.addSubRound === r) {
+      const praiseZh = `答对啦！${r.a} ${r.op === '+' ? '加' : '减'} ${r.b} 等于 ${r.ans}！`;
+      const praiseEn = `Correct! ${r.a} ${r.op === '+' ? 'plus' : 'minus'} ${r.b} equals ${r.ans}!`;
+      if (isParty) HMC.audio.setPrompt(praiseZh, praiseEn, false);
+      else HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
+      HMC.audio.waitForSpeechThen(
+        1300,
+        () => {
           HMC.audio.SFX.cluck();
           renderAddSubSubMode(true);
-        }
-      }, 2200);
+        },
+        () => state.mode === 'counting' && state.mathSubMode === 'addsub' && state.addSubRound === r
+      );
     } else {
       state.mathWrongCount++;
       HMC.audio.SFX.boing();

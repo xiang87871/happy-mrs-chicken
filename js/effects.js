@@ -58,6 +58,8 @@
     }
   }
 
+  let partyTimer = null;
+
   function awardStar() {
     const state = HMC.state;
     const newTotal = (HMC.storage && HMC.storage.addStar)
@@ -81,17 +83,49 @@
       }, toastDelay);
     }
 
-    if (state.stars >= 5) {
-      setTimeout(() => {
-        const nick = (HMC.audio && HMC.audio.getNick) ? HMC.audio.getNick() : '宝贝';
+    const isParty = state.stars >= 5;
+    if (isParty) {
+      if (partyTimer) clearTimeout(partyTimer);
+      partyTimer = setTimeout(() => {
+        partyTimer = null;
+        const sleepOverlay = document.getElementById('sleepOverlay');
+        if (sleepOverlay && sleepOverlay.classList.contains('open')) return;
+
         HMC.audio.SFX.fanfare();
         burstConfetti(48);
-        spawnFloatingWord(`🎉 ${nick}小鸡大派对！`, (window.innerWidth || 390) / 2, (window.innerHeight || 844) * 0.36, '#FF8C00');
-        HMC.audio.playParentClip(
-          'party',
-          `${nick}集齐五颗星啦！快乐小鸡大派对！`,
-          'Five stars! Happy Mrs. Chicken party!'
-        );
+        spawnFloatingWord('🎉 小鸡大派对！', (window.innerWidth || 390) / 2, (window.innerHeight || 844) * 0.36, '#FF8C00');
+
+        const playPartyVoice = () => {
+          const sleepEl = document.getElementById('sleepOverlay');
+          if (sleepEl && sleepEl.classList.contains('open')) return;
+          HMC.audio.playParentClip(
+            'party',
+            '哇！集齐五颗星啦！快乐小鸡大派对！',
+            'Five stars! Happy Mrs. Chicken party!'
+          );
+        };
+
+        if (
+          HMC.audio &&
+          typeof HMC.audio.isSpeaking === 'function' &&
+          HMC.audio.isSpeaking() &&
+          typeof HMC.audio.getCurrentSpeechPromise === 'function'
+        ) {
+          const genBefore = typeof HMC.audio.getSpeechGen === 'function' ? HMC.audio.getSpeechGen() : -1;
+          const activeP = HMC.audio.getCurrentSpeechPromise();
+          let settled = false;
+          const finish = () => {
+            if (settled) return;
+            settled = true;
+            const curGen = typeof HMC.audio.getSpeechGen === 'function' ? HMC.audio.getSpeechGen() : -1;
+            if (curGen === genBefore) playPartyVoice();
+          };
+          setTimeout(finish, 4500);
+          Promise.resolve(activeP).then(finish, finish);
+        } else {
+          playPartyVoice();
+        }
+
         const actor = document.querySelector('.chicken-actor');
         if (actor) {
           actor.classList.remove('idle');
@@ -107,6 +141,7 @@
         }, 2200);
       }, 500);
     }
+    return isParty;
   }
 
   function setupDragToTarget(dragEl, targetSelector, onDrop) {

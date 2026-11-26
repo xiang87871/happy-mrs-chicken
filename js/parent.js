@@ -21,11 +21,6 @@
       panelVoices: document.getElementById('parentPanelVoices'),
       panelInsights: document.getElementById('parentTabInsights'),
       insightsContent: document.getElementById('insightsContent'),
-      nicknameInput: document.getElementById('nicknameInput'),
-      nicknameSaveBtn: document.getElementById('nicknameSaveBtn'),
-      nicknameTestBtn: document.getElementById('nicknameTestBtn'),
-      nicknameChips: document.getElementById('nicknameChips'),
-      nicknameFeedback: document.getElementById('nicknameFeedback'),
       voiceSupportBanner: document.getElementById('voiceSupportBanner'),
       voiceSlotsList: document.getElementById('voiceSlotsList'),
       voiceCountBadge: document.getElementById('voiceCountBadge'),
@@ -41,25 +36,15 @@
     return !!(parentModal && parentModal.classList.contains('open'));
   }
 
-  function getNick() {
-    if (HMC.audio && typeof HMC.audio.getNick === 'function') {
-      return HMC.audio.getNick();
-    }
-    if (HMC.storage && typeof HMC.storage.getNickname === 'function') {
-      return HMC.storage.getNickname();
-    }
-    return '宝贝';
-  }
-
   function getVoiceSlots() {
     if (HMC.data && Array.isArray(HMC.data.VOICE_SLOTS) && HMC.data.VOICE_SLOTS.length > 0) {
       return HMC.data.VOICE_SLOTS;
     }
     return [
-      { id: 'praise', icon: '🌟', title: '答对夸奖',   hintTpl: '例：“{nick}真棒！答对啦！”' },
+      { id: 'praise', icon: '🌟', title: '答对夸奖',   hintTpl: '例：“你真棒！答对啦！”' },
       { id: 'lay',    icon: '🥚', title: '下蛋咯咯哒', hintTpl: '例：“咯咯哒！快乐小鸡下蛋啦！”' },
-      { id: 'party',  icon: '🎉', title: '集星开派对', hintTpl: '例：“{nick}太厉害啦，开派对咯！”' },
-      { id: 'sleep',  icon: '🌙', title: '护眼说晚安', hintTpl: '例：“小鸡睡觉咯，{nick}晚安！”' }
+      { id: 'party',  icon: '🎉', title: '集星开派对', hintTpl: '例：“太厉害啦，开派对咯！”' },
+      { id: 'sleep',  icon: '🌙', title: '护眼说晚安', hintTpl: '例：“小鸡睡觉咯，晚安哟！”' }
     ];
   }
 
@@ -154,11 +139,10 @@
   }
 
   function getSlotPreviewTexts(slotId) {
-    const nick = getNick();
     if (slotId === 'praise') {
       return {
-        zh: `${nick}真棒！答对啦！`,
-        en: `Great job, ${nick}!`
+        zh: '你真棒！答对啦！',
+        en: 'Great job! You got it right!'
       };
     }
     if (slotId === 'lay') {
@@ -169,13 +153,14 @@
     }
     if (slotId === 'party') {
       return {
-        zh: `${nick}太厉害啦，集齐五颗星开派对咯！`,
+        zh: '哇！集齐五颗星啦！快乐小鸡大派对！',
         en: 'Five stars! Happy Mrs. Chicken party!'
       };
     }
     return {
-      zh: `小鸡睡觉咯，${nick}晚安！`,
-      en: 'Happy Mrs. Chicken is sleepy. Good night!'
+      zh: '快乐小鸡困啦，要睡觉咯。今天玩得真棒，让眼睛和小鸡一起休息一下吧，晚安哟！',
+      en: 'Happy Mrs. Chicken is sleepy. Good night!',
+      voiceStyle: 'bedtime'
     };
   }
 
@@ -196,11 +181,10 @@
       stopActiveRecording(true);
     }
 
-    if (HMC.audio && typeof HMC.audio.stopParentClip === 'function') {
+    if (HMC.audio && typeof HMC.audio.stopAllSpeech === 'function') {
+      HMC.audio.stopAllSpeech();
+    } else if (HMC.audio && typeof HMC.audio.stopParentClip === 'function') {
       HMC.audio.stopParentClip();
-    }
-    if ('speechSynthesis' in window) {
-      try { window.speechSynthesis.cancel(); } catch (e) {}
     }
 
     if (!isRecordingSupported()) {
@@ -459,7 +443,6 @@
     const clips = (HMC.storage && typeof HMC.storage.getVoiceClips === 'function')
       ? HMC.storage.getVoiceClips()
       : {};
-    const nick = getNick();
     const supported = isRecordingSupported();
 
     voiceSlotsList.innerHTML = '';
@@ -469,7 +452,7 @@
       const currentRecId = activeRecSession ? activeRecSession.slotId : null;
       const isRecThis = currentRecId === slot.id;
       const isRecOther = Boolean(currentRecId && currentRecId !== slot.id);
-      const hintText = String(slot.hintTpl || '').replace(/\{nick\}/g, nick);
+      const hintText = String(slot.hintTpl || '').replace(/\{nick\}/g, '');
 
       const card = document.createElement('div');
       card.className = 'voice-slot-card' + (isRecThis ? ' is-recording' : (hasClip ? ' is-recorded' : ''));
@@ -538,7 +521,13 @@
           return;
         }
         const preview = getSlotPreviewTexts(slot.id);
-        HMC.audio.playParentClip(slot.id, preview.zh, preview.en);
+        HMC.audio.playParentClip(
+          slot.id,
+          preview.zh,
+          preview.en,
+          null,
+          preview.voiceStyle ? { voiceStyle: preview.voiceStyle } : {}
+        );
       });
       actionsRow.appendChild(playBtn);
 
@@ -578,47 +567,12 @@
   }
 
   /* ==========================================================================
-     Child Nickname Personalization UI
+     Universal Sleep Greeting Sync
      ========================================================================== */
   function syncSleepGreetingText() {
     const { sleepGreetingText } = getEls();
     if (!sleepGreetingText) return;
-    const nick = getNick();
-    sleepGreetingText.textContent = `${nick}今天玩得真棒！我们让眼睛和小鸡一起休息一下吧，晚安哟！`;
-  }
-
-  function showNicknameFeedback(text, isWarn = false) {
-    const { nicknameFeedback } = getEls();
-    if (!nicknameFeedback) return;
-    nicknameFeedback.textContent = text;
-    nicknameFeedback.classList.toggle('is-warn', Boolean(isWarn));
-    nicknameFeedback.classList.remove('hidden');
-  }
-
-  function syncNicknameUI() {
-    const { nicknameInput, nicknameChips } = getEls();
-    const nick = getNick();
-    if (nicknameInput) {
-      nicknameInput.value = nick;
-    }
-    if (nicknameChips) {
-      nicknameChips.querySelectorAll('.nick-chip').forEach(chip => {
-        chip.classList.toggle('active', chip.dataset.nick === nick);
-      });
-    }
-    syncSleepGreetingText();
-  }
-
-  function saveNicknameValue(rawName, playPop = true) {
-    const saved = (HMC.storage && typeof HMC.storage.setNickname === 'function')
-      ? HMC.storage.setNickname(rawName)
-      : '宝贝';
-    syncNicknameUI();
-    showNicknameFeedback(`✅ 已保存专属小名「${saved}」，小鸡现在会叫你${saved}啦！`, false);
-    if (playPop && HMC.audio && HMC.audio.SFX) {
-      HMC.audio.SFX.pop();
-    }
-    return saved;
+    sleepGreetingText.textContent = '今天玩得真棒！我们让眼睛和小鸡一起休息一下吧，晚安哟！';
   }
 
   /* ==========================================================================
@@ -657,7 +611,6 @@
             ? HMC.data.RARE_BUDDIES.length
             : 24
         };
-    const nick = getNick();
 
     insightsContent.innerHTML = '';
 
@@ -726,11 +679,11 @@
 
       const title = document.createElement('div');
       title.className = 'insights-empty-title';
-      title.textContent = `${nick}的成长小档案准备就绪！`;
+      title.textContent = '成长小档案准备就绪！';
 
       const desc = document.createElement('p');
       desc.className = 'insights-empty-desc';
-      desc.textContent = '去颜色、数学、形状或乐园陪宝贝玩几关，这里就会自动生成专属强项与陪玩小建议哦～';
+      desc.textContent = '去颜色、数学、形状或乐园玩几关，这里就会自动生成专属强项与陪玩小建议哦～';
 
       emptyCard.appendChild(emoji);
       emptyCard.appendChild(title);
@@ -745,7 +698,7 @@
 
     const strengthTitle = document.createElement('div');
     strengthTitle.className = 'insights-card-title';
-    strengthTitle.textContent = `🌟 ${nick}最拿手的强项`;
+    strengthTitle.textContent = '🌟 最拿手的强项';
     strengthCard.appendChild(strengthTitle);
 
     if (summary.strengths.length > 0) {
@@ -761,7 +714,7 @@
     } else {
       const warmNote = document.createElement('p');
       warmNote.className = 'insights-card-note';
-      warmNote.textContent = `${nick}正在认真探索热身中，多试几次很快就能发现拿手强项啦！`;
+      warmNote.textContent = '正在认真探索热身中，多试几次很快就能发现拿手强项啦！';
       strengthCard.appendChild(warmNote);
     }
     insightsContent.appendChild(strengthCard);
@@ -905,7 +858,9 @@
     if (nextTab !== 'insights') {
       clearResetInsightsConfirm();
     }
-    if (HMC.audio && typeof HMC.audio.stopParentClip === 'function') {
+    if (HMC.audio && typeof HMC.audio.stopAllSpeech === 'function') {
+      HMC.audio.stopAllSpeech();
+    } else if (HMC.audio && typeof HMC.audio.stopParentClip === 'function') {
       HMC.audio.stopParentClip();
     }
 
@@ -933,7 +888,7 @@
     } else if (activeTab === 'insights') {
       renderInsightsPanel();
     } else {
-      syncNicknameUI();
+      syncSleepGreetingText();
       updateTimerUI();
     }
   }
@@ -981,6 +936,9 @@
 
   function activateSleepMode() {
     closeParentMenu();
+    if (HMC.audio && typeof HMC.audio.cancelPendingTransitions === 'function') {
+      HMC.audio.cancelPendingTransitions();
+    }
     if (HMC.wardrobe && HMC.wardrobe.closeWardrobe) HMC.wardrobe.closeWardrobe();
     const { sleepOverlay } = getEls();
     syncSleepGreetingText();
@@ -995,11 +953,12 @@
     }
     HMC.audio.SFX.lullaby();
     setTimeout(() => {
-      const nick = getNick();
       HMC.audio.playParentClip(
         'sleep',
-        `快乐小鸡困啦，要睡觉咯。${nick}今天玩得真棒，晚安哟！`,
-        'Happy Mrs. Chicken is sleepy. Good night!'
+        '快乐小鸡困啦，要睡觉咯。今天玩得真棒，让眼睛和小鸡一起休息一下吧，晚安哟！',
+        'Happy Mrs. Chicken is sleepy. Good night!',
+        null,
+        { voiceStyle: 'bedtime' }
       );
     }, 650);
   }
@@ -1007,11 +966,10 @@
   function openParentMenu(e, initialTab = null) {
     if (e) e.stopPropagation();
     if (HMC.wardrobe && HMC.wardrobe.closeWardrobe) HMC.wardrobe.closeWardrobe();
-    const { parentModal, nicknameFeedback } = getEls();
+    const { parentModal } = getEls();
     voiceBannerNotice = null;
-    if (nicknameFeedback) nicknameFeedback.classList.add('hidden');
     updateTimerUI();
-    syncNicknameUI();
+    syncSleepGreetingText();
     updateVoiceCountBadge();
     if (parentModal) {
       parentModal.classList.add('open');
@@ -1024,7 +982,9 @@
     micRequestToken++;
     clearResetInsightsConfirm();
     stopActiveRecording(true);
-    if (HMC.audio && typeof HMC.audio.stopParentClip === 'function') {
+    if (HMC.audio && typeof HMC.audio.stopAllSpeech === 'function') {
+      HMC.audio.stopAllSpeech();
+    } else if (HMC.audio && typeof HMC.audio.stopParentClip === 'function') {
       HMC.audio.stopParentClip();
     }
     const { parentModal } = getEls();
@@ -1045,16 +1005,12 @@
     const {
       parentModal,
       parentTabs,
-      nicknameInput,
-      nicknameSaveBtn,
-      nicknameTestBtn,
-      nicknameChips,
       timerBadgeBtn,
       sleepOverlay
     } = getEls();
 
     syncLangButtons();
-    syncNicknameUI();
+    syncSleepGreetingText();
     updateVoiceCountBadge();
 
     const parentMenuBtn = document.getElementById('parentMenuBtn');
@@ -1086,47 +1042,6 @@
       });
     }
 
-    // Child Nickname Personalization events
-    if (nicknameSaveBtn && nicknameInput) {
-      nicknameSaveBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        saveNicknameValue(nicknameInput.value, true);
-      });
-    }
-    if (nicknameInput) {
-      nicknameInput.addEventListener('keydown', (e) => {
-        e.stopPropagation();
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          saveNicknameValue(nicknameInput.value, true);
-          nicknameInput.blur();
-        }
-      });
-    }
-    if (nicknameTestBtn) {
-      nicknameTestBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const raw = nicknameInput ? nicknameInput.value : getNick();
-        const saved = saveNicknameValue(raw, false);
-        if (!state.soundOn) {
-          showNicknameFeedback('🔇 当前处于静音状态，点击右上角喇叭可开启声音试听哦！', true);
-          return;
-        }
-        HMC.audio.speak(
-          `${saved}真棒！快乐小鸡最喜欢${saved}啦！`,
-          `Great job, ${saved}! Happy Mrs. Chicken loves you!`
-        );
-      });
-    }
-    if (nicknameChips) {
-      nicknameChips.querySelectorAll('.nick-chip').forEach(chip => {
-        chip.addEventListener('click', (e) => {
-          e.stopPropagation();
-          saveNicknameValue(chip.dataset.nick || '宝贝', true);
-        });
-      });
-    }
-
     // Language switcher (preserved 100%)
     document.querySelectorAll('#langChoices [data-lang]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -1138,7 +1053,9 @@
         else if (state.mode === 'shapes') HMC.modes.shapes.renderShapeMode(false);
         else if (state.mode === 'counting') HMC.modes.math.renderCountingMode(false);
         else if (state.mode === 'play' && HMC.modes.play) HMC.modes.play.renderPlayMode(false);
-        HMC.audio.setPrompt(state.lastPromptZh, state.lastPromptEn, true);
+        HMC.audio.setPrompt(state.lastPromptZh, state.lastPromptEn, true, {
+          voiceStyle: state.lastPromptVoiceStyle || 'daily'
+        });
       });
     });
 
@@ -1179,7 +1096,7 @@
             HMC.modes.classic.startMeadowLife();
           }
           HMC.audio.SFX.cluck();
-          HMC.audio.speak('早上好，宝贝！快乐小鸡睡醒啦！', 'Good morning! Happy Chicken is awake!');
+          HMC.audio.speak('早上好！快乐小鸡睡醒啦！', 'Good morning! Happy Chicken is awake!');
         }, 1800);
       };
       const cancelHold = () => {
@@ -1204,7 +1121,6 @@
     closeParentMenu,
     switchParentTab,
     syncLangButtons,
-    syncNicknameUI,
     syncSleepGreetingText,
     renderVoicesPanel,
     renderInsightsPanel,

@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE_NAME = 'hmc-offline-v10';
+const CACHE_NAME = 'hmc-offline-v11';
 const PRECACHE_URLS = [
   './',
   './index.html',
@@ -11,6 +11,7 @@ const PRECACHE_URLS = [
   './js/storage.js',
   './js/data.js',
   './js/audio.js',
+  './js/voice-pack.js',
   './js/svg-wardrobe.js',
   './js/svg-buddies.js',
   './js/svg.js',

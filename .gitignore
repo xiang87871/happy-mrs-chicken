@@ -1,4 +1,5 @@
 .DS_Store
 .bundle-test.html
+.voice-audition/
 node_modules/
 *.log

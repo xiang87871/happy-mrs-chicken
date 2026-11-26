@@ -6153,36 +6153,9 @@ svg .ground-shadow {
       </div>
 
       <div class="parent-body" id="parentBody">
-        <!-- Tab 1: Basic Settings (Nickname + Language + Eye-Care Timer) -->
+        <!-- Tab 1: Basic Settings (Language + Eye-Care Timer) -->
         <div class="parent-panel" id="parentPanelSettings" data-panel="settings" role="tabpanel">
           <div class="parent-section">
-            <div class="parent-section-title">🏷️ 宝贝专属小名</div>
-            <p class="parent-section-desc">
-              设好小名后，小鸡的答对夸奖、五颗星派对和护眼晚安都会亲切呼唤宝贝哦！
-            </p>
-            <div class="nickname-row">
-              <input
-                type="text"
-                id="nicknameInput"
-                class="nickname-input"
-                maxlength="12"
-                autocomplete="off"
-                placeholder="如：乐乐、朵朵、姐妹俩"
-                aria-label="宝贝专属小名"
-              />
-              <button class="ctrl-btn active nickname-save-btn" id="nicknameSaveBtn" type="button">保存</button>
-              <button class="ctrl-btn nickname-test-btn" id="nicknameTestBtn" type="button">🔊 试听</button>
-            </div>
-            <div class="nickname-chips" id="nicknameChips">
-              <button class="nick-chip" data-nick="宝贝" type="button">宝贝</button>
-              <button class="nick-chip" data-nick="乐乐" type="button">乐乐</button>
-              <button class="nick-chip" data-nick="朵朵" type="button">朵朵</button>
-              <button class="nick-chip" data-nick="姐姐妹妹" type="button">姐姐妹妹</button>
-            </div>
-            <div class="nickname-feedback hidden" id="nicknameFeedback" aria-live="polite"></div>
-          </div>
-
-          <div class="parent-section parent-section-divider">
             <div class="parent-section-title">🌐 语音启蒙语言</div>
             <div class="seg-grid-3" id="langChoices">
               <button class="ctrl-btn active" data-lang="zh" type="button">中文</button>
@@ -6232,7 +6205,7 @@ svg .ground-shadow {
     <div id="sleepingChickenSlot"></div>
     <h2 style="margin:0;font-size:24px;font-weight:900;color:#FFE875;">快乐小鸡困啦，要睡觉咯～</h2>
     <p id="sleepGreetingText" style="margin:0;max-width:340px;font-size:15px;line-height:1.6;color:#E8EEFF;">
-      宝贝今天玩得真棒！我们让眼睛和小鸡一起休息一下吧，晚安哟！
+      今天玩得真棒！我们让眼睛和小鸡一起休息一下吧，晚安哟！
     </p>
     <button class="hold-unlock-btn" id="unlockSleepBtn" type="button">家长长按 2 秒可唤醒小鸡</button>
   </div>
@@ -7258,10 +7231,10 @@ window.__HMC_SINGLE_FILE__ = true;
   const NURSERY_SONG_BY_ID = Object.fromEntries(NURSERY_SONGS.map(s => [s.id, s]));
 
   const VOICE_SLOTS = [
-    { id: 'praise', icon: '🌟', title: '答对夸奖',   hintTpl: '例：“{nick}真棒！答对啦！”' },
+    { id: 'praise', icon: '🌟', title: '答对夸奖',   hintTpl: '例：“你真棒！答对啦！”' },
     { id: 'lay',    icon: '🥚', title: '下蛋咯咯哒', hintTpl: '例：“咯咯哒！快乐小鸡下蛋啦！”' },
-    { id: 'party',  icon: '🎉', title: '集星开派对', hintTpl: '例：“{nick}太厉害啦，开派对咯！”' },
-    { id: 'sleep',  icon: '🌙', title: '护眼说晚安', hintTpl: '例：“小鸡睡觉咯，{nick}晚安！”' }
+    { id: 'party',  icon: '🎉', title: '集星开派对', hintTpl: '例：“太厉害啦，开派对咯！”' },
+    { id: 'sleep',  icon: '🌙', title: '护眼说晚安', hintTpl: '例：“小鸡睡觉咯，晚安哟！”' }
   ];
   const VOICE_SLOT_BY_ID = Object.fromEntries(VOICE_SLOTS.map(s => [s.id, s]));
 
@@ -7327,6 +7300,7 @@ window.__HMC_SINGLE_FILE__ = true;
     totalStars: 0,
     lastPromptZh: '',
     lastPromptEn: '',
+    lastPromptVoiceStyle: 'daily',
     classicItems: [],
     classicLayCount: 0,
     chickenX: 50,
@@ -7683,44 +7657,117 @@ window.__HMC_SINGLE_FILE__ = true;
     }
   };
 
-  let activeParentAudio = null;
+  /* ==========================================================================
+     3-Tier Voice & Speech Engine (Tier 1 Parent Clip -> Tier 2 Offline MP3
+     Pack via HMC.voicePack -> Tier 3 Web Speech API Fallback + Watchdog)
+     ========================================================================== */
+
+  let speechGen = 0;
+  let currentSpeechPromise = Promise.resolve();
+  let isActiveSpeaking = false;
+  let activeClipAudio = null;
+  let activeClipCancel = null;
+  let activeUtterance = null;
+  let pendingTransitions = new Set();
+  let pendingTimers = new Set();
 
   function getNick() {
-    if (HMC.storage && typeof HMC.storage.getNickname === 'function') {
-      return HMC.storage.getNickname() || '宝贝';
-    }
-    return '宝贝';
+    return '';
   }
 
   function personalizeZh(text) {
     if (!text || typeof text !== 'string') return '';
-    const nick = getNick();
-    if (!nick || nick === '宝贝') return text;
-    return text.replace(/宝贝/g, nick);
+    return text
+      .replace(/^宝贝[，,]\s*/, '')
+      .replace(/[，,]宝贝([！!？?。])/g, '$1');
   }
 
   function withNick(text) {
-    const base = personalizeZh(text);
-    if (!base) return '';
-    const nick = getNick();
-    if (base.includes(nick)) return base;
-    return `${nick}，${base}`;
+    return personalizeZh(text);
+  }
+
+  function stripSpeechDecorations(text) {
+    if (!text || typeof text !== 'string') return '';
+    return text
+      .replace(/[【】]/g, '')
+      .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{2300}-\u{23FF}\uFE0E\uFE0F\u200D\u20E3]/gu, '')
+      .replace(/[\u00A0\u3000\s]+/g, ' ')
+      .trim();
+  }
+
+  function normalizeVoiceKey(text) {
+    if (!text || typeof text !== 'string') return '';
+    let s = stripSpeechDecorations(text)
+      .replace(/\.{3,}/g, '…')
+      .replace(/~+/g, '～')
+      .trim();
+    // Collapse spaces adjacent to CJK characters or CJK punctuation so keys match identically
+    s = s
+      .replace(/([\u4E00-\u9FFF\u3001-\u303F\uFF00-\uFFEF])\s+/g, '$1')
+      .replace(/\s+([\u4E00-\u9FFF\u3001-\u303F\uFF00-\uFFEF])/g, '$1')
+      .replace(/\s+([,.;:!?])/g, '$1')
+      .trim();
+    return s;
+  }
+
+  function stopActiveClipPlayback() {
+    if (typeof activeClipCancel === 'function') {
+      const cancel = activeClipCancel;
+      activeClipCancel = null;
+      try { cancel(); } catch (e) {}
+    }
+    if (activeClipAudio) {
+      const a = activeClipAudio;
+      activeClipAudio = null;
+      try {
+        a.onended = null;
+        a.onerror = null;
+        if (typeof a.pause === 'function') a.pause();
+        try { a.currentTime = 0; } catch (e) {}
+      } catch (e) {}
+    }
+    activeUtterance = null;
   }
 
   function stopParentClip() {
-    if (activeParentAudio) {
-      try {
-        activeParentAudio.onended = null;
-        activeParentAudio.onerror = null;
-        if (typeof activeParentAudio.pause === 'function') activeParentAudio.pause();
-        try { activeParentAudio.currentTime = 0; } catch (e) {}
-      } catch (e) {}
-      activeParentAudio = null;
+    stopActiveClipPlayback();
+  }
+
+  function stopAllSpeech() {
+    speechGen++;
+    isActiveSpeaking = false;
+    stopActiveClipPlayback();
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try { window.speechSynthesis.cancel(); } catch (e) {}
     }
+    currentSpeechPromise = Promise.resolve();
+  }
+
+  function cancelPendingTransitions() {
+    pendingTransitions.forEach(entry => {
+      try { entry.cancel(); } catch (e) {}
+    });
+    pendingTransitions.clear();
+    pendingTimers.forEach(t => {
+      try { clearTimeout(t); } catch (e) {}
+    });
+    pendingTimers.clear();
+  }
+
+  function isSpeaking() {
+    return isActiveSpeaking;
+  }
+
+  function getSpeechGen() {
+    return speechGen;
+  }
+
+  function getCurrentSpeechPromise() {
+    return currentSpeechPromise;
   }
 
   function pickVoice(langPrefix) {
-    if (!('speechSynthesis' in window)) return null;
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
     const voices = window.speechSynthesis.getVoices() || [];
     return (
       voices.find(v => v.lang && v.lang.toLowerCase().startsWith(langPrefix) && /ting|mei|sin|xiaoxiao|samantha|victoria|google/i.test(v.name)) ||
@@ -7729,38 +7776,256 @@ window.__HMC_SINGLE_FILE__ = true;
     );
   }
 
-  function speak(zhText, enText = '') {
-    const state = HMC.state;
-    stopParentClip();
-    if (!state.soundOn || !('speechSynthesis' in window)) return;
-    const finalZh = personalizeZh(zhText || '');
-    try {
-      window.speechSynthesis.cancel();
-      const queue = [];
-      if (state.lang === 'zh' && finalZh) queue.push({ text: finalZh, lang: 'zh-CN', prefix: 'zh' });
-      else if (state.lang === 'en' && (enText || finalZh)) queue.push({ text: enText || finalZh, lang: 'en-US', prefix: 'en' });
-      else if (state.lang === 'bi') {
-        if (finalZh) queue.push({ text: finalZh, lang: 'zh-CN', prefix: 'zh' });
-        if (enText) queue.push({ text: enText, lang: 'en-US', prefix: 'en' });
+  function playAudioUrl(url, myGen) {
+    return new Promise((resolve) => {
+      if (myGen !== speechGen) {
+        resolve('cancelled');
+        return;
+      }
+      if (!url || typeof window === 'undefined' || typeof window.Audio !== 'function') {
+        resolve('error');
+        return;
       }
 
-      queue.forEach(item => {
-        const u = new SpeechSynthesisUtterance(item.text);
-        u.lang = item.lang;
-        u.rate = item.prefix === 'zh' ? 0.94 : 0.88;
-        u.pitch = 1.18;
-        const voice = pickVoice(item.prefix);
-        if (voice) u.voice = voice;
-        window.speechSynthesis.speak(u);
-      });
-    } catch (e) {}
+      let audio;
+      try {
+        audio = new window.Audio(url);
+        audio.preload = 'auto';
+      } catch (e) {
+        resolve('error');
+        return;
+      }
+
+      let settled = false;
+      let watchdog = null;
+
+      const cleanup = () => {
+        if (watchdog) {
+          clearTimeout(watchdog);
+          watchdog = null;
+        }
+        try {
+          audio.onended = null;
+          audio.onerror = null;
+        } catch (e) {}
+        if (activeClipAudio === audio) activeClipAudio = null;
+        if (activeClipCancel === cancelFn) activeClipCancel = null;
+      };
+
+      const finish = (status) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(status);
+      };
+
+      const cancelFn = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        try {
+          if (typeof audio.pause === 'function') audio.pause();
+          try { audio.currentTime = 0; } catch (e) {}
+        } catch (e) {}
+        resolve('cancelled');
+      };
+
+      activeClipAudio = audio;
+      activeClipCancel = cancelFn;
+
+      audio.onended = () => finish('ended');
+      audio.onerror = () => finish('error');
+
+      // Safety watchdog in case a media stream stalls without firing ended/error
+      watchdog = setTimeout(() => {
+        try {
+          if (typeof audio.pause === 'function') audio.pause();
+        } catch (e) {}
+        finish('error');
+      }, 15000);
+
+      try {
+        const playResult = audio.play();
+        if (playResult && typeof playResult.then === 'function') {
+          playResult.catch(() => finish('error'));
+        }
+      } catch (e) {
+        finish('error');
+      }
+    });
   }
 
-  function playParentClip(slotId, fallbackZh = '', fallbackEn = '', onDone = null) {
-    stopParentClip();
+  function speakViaWebSpeech(seg, voiceStyle, myGen) {
+    return new Promise((resolve) => {
+      if (myGen !== speechGen) {
+        resolve('cancelled');
+        return;
+      }
+      if (
+        !HMC.state ||
+        !HMC.state.soundOn ||
+        typeof window === 'undefined' ||
+        !('speechSynthesis' in window) ||
+        typeof window.SpeechSynthesisUtterance !== 'function'
+      ) {
+        resolve('skipped');
+        return;
+      }
+
+      const cleanText = stripSpeechDecorations(seg.text);
+      if (!cleanText) {
+        resolve('ended');
+        return;
+      }
+
+      let settled = false;
+      let watchdog = null;
+      let u = null;
+
+      const cleanup = () => {
+        if (watchdog) {
+          clearTimeout(watchdog);
+          watchdog = null;
+        }
+        if (u) {
+          try {
+            u.onend = null;
+            u.onerror = null;
+          } catch (e) {}
+        }
+        if (activeClipCancel === cancelFn) activeClipCancel = null;
+        if (activeUtterance === u) activeUtterance = null;
+      };
+
+      const finish = (status) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(status);
+      };
+
+      const cancelFn = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        try {
+          if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+        } catch (e) {}
+        resolve('cancelled');
+      };
+
+      try {
+        u = new window.SpeechSynthesisUtterance(cleanText);
+        u.lang = seg.bcp47;
+        u.pitch = 1.0;
+        u.rate = voiceStyle === 'bedtime' ? 0.88 : 0.96;
+        const voice = pickVoice(seg.lang);
+        if (voice) u.voice = voice;
+
+        activeUtterance = u;
+        activeClipCancel = cancelFn;
+
+        u.onend = () => finish('ended');
+        u.onerror = () => finish('error');
+
+        const watchdogMs = Math.max(1600, cleanText.length * 320 + 1200);
+        watchdog = setTimeout(() => {
+          finish('timeout');
+        }, watchdogMs);
+
+        window.speechSynthesis.speak(u);
+      } catch (e) {
+        finish('error');
+      }
+    });
+  }
+
+  async function speakInternal(zhText, enText, opts, myGen) {
+    const state = HMC.state;
+    if (!state || !state.soundOn || myGen !== speechGen) return;
+
+    const finalZh = personalizeZh(zhText || '');
+    const finalEn = typeof enText === 'string' ? enText : '';
+    const voiceStyle = (opts && opts.voiceStyle) || 'daily';
+
+    const segments = [];
+    if (state.lang === 'zh') {
+      if (finalZh) segments.push({ text: finalZh, lang: 'zh', bcp47: 'zh-CN' });
+    } else if (state.lang === 'en') {
+      if (finalEn || finalZh) segments.push({ text: finalEn || finalZh, lang: 'en', bcp47: 'en-US' });
+    } else if (state.lang === 'bi') {
+      if (finalZh) segments.push({ text: finalZh, lang: 'zh', bcp47: 'zh-CN' });
+      if (finalEn) segments.push({ text: finalEn, lang: 'en', bcp47: 'en-US' });
+    } else {
+      if (finalZh) segments.push({ text: finalZh, lang: 'zh', bcp47: 'zh-CN' });
+    }
+
+    for (let i = 0; i < segments.length; i++) {
+      if (myGen !== speechGen || !state.soundOn) return;
+      const seg = segments[i];
+
+      // Tier 2: Offline pre-generated MP3 pack via HMC.voicePack.resolve(text, lang, voiceStyle)
+      let mp3Urls = null;
+      if (HMC.voicePack && typeof HMC.voicePack.resolve === 'function') {
+        try {
+          const resolved = HMC.voicePack.resolve(seg.text, seg.lang, voiceStyle);
+          if (Array.isArray(resolved) && resolved.length > 0) {
+            mp3Urls = resolved.filter(u => typeof u === 'string' && u.length > 0);
+          } else if (typeof resolved === 'string' && resolved.length > 0) {
+            mp3Urls = [resolved];
+          }
+        } catch (e) {
+          mp3Urls = null;
+        }
+      }
+
+      let mp3Succeeded = false;
+      if (mp3Urls && mp3Urls.length > 0 && typeof window !== 'undefined' && typeof window.Audio === 'function') {
+        mp3Succeeded = true;
+        for (let j = 0; j < mp3Urls.length; j++) {
+          if (myGen !== speechGen || !state.soundOn) return;
+          const res = await playAudioUrl(mp3Urls[j], myGen);
+          if (res === 'cancelled' || myGen !== speechGen) return;
+          if (res === 'error') {
+            mp3Succeeded = false;
+            break;
+          }
+        }
+      }
+
+      // Tier 3: Web Speech API fallback (natural pitch=1.0 + safety watchdog)
+      if (!mp3Succeeded && myGen === speechGen && state.soundOn) {
+        await speakViaWebSpeech(seg, voiceStyle, myGen);
+      }
+    }
+  }
+
+  function speak(zhText, enText = '', opts = {}) {
+    stopAllSpeech();
     if (!HMC.state || !HMC.state.soundOn) {
-      if (typeof onDone === 'function') onDone(false);
-      return false;
+      currentSpeechPromise = Promise.resolve();
+      return currentSpeechPromise;
+    }
+
+    const myGen = speechGen;
+    isActiveSpeaking = true;
+    const p = speakInternal(zhText, enText, opts, myGen).finally(() => {
+      if (myGen === speechGen) {
+        isActiveSpeaking = false;
+      }
+    });
+    currentSpeechPromise = p;
+    return p;
+  }
+
+  function playParentClip(slotId, fallbackZh = '', fallbackEn = '', onDone = null, opts = {}) {
+    stopAllSpeech();
+    if (!HMC.state || !HMC.state.soundOn) {
+      if (typeof onDone === 'function') {
+        try { onDone(false); } catch (e) {}
+      }
+      currentSpeechPromise = Promise.resolve();
+      return currentSpeechPromise;
     }
 
     const hasClip = !!(
@@ -7772,78 +8037,172 @@ window.__HMC_SINGLE_FILE__ = true;
       ? HMC.storage.getVoiceClip(slotId)
       : null;
 
-    if (!dataUrl || typeof window.Audio !== 'function') {
-      if (fallbackZh || fallbackEn) speak(fallbackZh, fallbackEn);
-      if (typeof onDone === 'function') onDone(false);
-      return false;
-    }
-
-    if ('speechSynthesis' in window) {
-      try { window.speechSynthesis.cancel(); } catch (e) {}
-    }
-
-    let audio;
-    try {
-      audio = new window.Audio(dataUrl);
-    } catch (e) {
-      if (fallbackZh || fallbackEn) speak(fallbackZh, fallbackEn);
-      if (typeof onDone === 'function') onDone(false);
-      return false;
-    }
-
-    let settled = false;
-    const handleFallback = () => {
-      if (settled) return;
-      settled = true;
-      if (activeParentAudio === audio) activeParentAudio = null;
-      if (fallbackZh || fallbackEn) speak(fallbackZh, fallbackEn);
-      if (typeof onDone === 'function') onDone(false);
-    };
-    const handleEnded = () => {
-      if (settled) return;
-      settled = true;
-      if (activeParentAudio === audio) activeParentAudio = null;
-      if (typeof onDone === 'function') onDone(true);
-    };
-
-    activeParentAudio = audio;
-    audio.onended = handleEnded;
-    audio.onerror = handleFallback;
-
-    try {
-      const playResult = audio.play();
-      if (playResult && typeof playResult.then === 'function') {
-        playResult.catch(() => handleFallback());
+    if (!dataUrl || typeof window === 'undefined' || typeof window.Audio !== 'function') {
+      const p = (fallbackZh || fallbackEn)
+        ? speak(fallbackZh, fallbackEn, opts)
+        : Promise.resolve();
+      if (typeof onDone === 'function') {
+        p.then(() => {
+          try { onDone(false); } catch (e) {}
+        });
       }
-      return true;
-    } catch (e) {
-      handleFallback();
-      return false;
+      return p;
     }
+
+    const myGen = speechGen;
+    isActiveSpeaking = true;
+    const p = (async () => {
+      try {
+        const res = await playAudioUrl(dataUrl, myGen);
+        if (myGen !== speechGen) {
+          if (typeof onDone === 'function') {
+            try { onDone(false); } catch (e) {}
+          }
+          return;
+        }
+        if (res === 'ended') {
+          if (typeof onDone === 'function') {
+            try { onDone(true); } catch (e) {}
+          }
+          return;
+        }
+        if (fallbackZh || fallbackEn) {
+          await speakInternal(fallbackZh, fallbackEn, opts, myGen);
+        }
+        if (typeof onDone === 'function') {
+          try { onDone(false); } catch (e) {}
+        }
+      } finally {
+        if (myGen === speechGen) {
+          isActiveSpeaking = false;
+        }
+      }
+    })();
+
+    currentSpeechPromise = p;
+    return p;
   }
 
-  function setPrompt(zh, en, shouldSpeak = true) {
+  function delayTracked(ms, entry) {
+    return new Promise((resolve) => {
+      const t = setTimeout(() => {
+        pendingTimers.delete(t);
+        if (entry) entry.timers.delete(t);
+        resolve();
+      }, Math.max(0, ms));
+      pendingTimers.add(t);
+      if (entry) entry.timers.add(t);
+    });
+  }
+
+  function raceWithTimeoutTracked(promise, ms, entry) {
+    if (!promise || typeof promise.then !== 'function') return Promise.resolve();
+    return new Promise((resolve) => {
+      let done = false;
+      let t = null;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        if (t) {
+          clearTimeout(t);
+          pendingTimers.delete(t);
+          if (entry) entry.timers.delete(t);
+          t = null;
+        }
+        resolve();
+      };
+      t = setTimeout(finish, Math.max(0, ms));
+      pendingTimers.add(t);
+      if (entry) entry.timers.add(t);
+      promise.then(finish, finish);
+    });
+  }
+
+  function waitForSpeechThen(minDelayMs, callback, guardFn = null, maxWaitMs = 9000) {
+    const minMs = Math.max(0, Number(minDelayMs) || 0);
+    const maxMs = Math.max(minMs, Number(maxWaitMs) || 9000);
+    const startTime = Date.now();
+    const entry = {
+      cancelled: false,
+      timers: new Set(),
+      cancel() {
+        this.cancelled = true;
+        this.timers.forEach(t => {
+          clearTimeout(t);
+          pendingTimers.delete(t);
+        });
+        this.timers.clear();
+      }
+    };
+    pendingTransitions.add(entry);
+
+    const finalize = () => {
+      pendingTransitions.delete(entry);
+      if (entry.cancelled) return;
+      if (typeof guardFn === 'function') {
+        try {
+          if (!guardFn()) return;
+        } catch (e) {
+          return;
+        }
+      }
+      if (typeof callback === 'function') {
+        callback();
+      }
+    };
+
+    const soundOn = !!(HMC.state && HMC.state.soundOn);
+    if (!soundOn) {
+      delayTracked(minMs, entry).then(finalize);
+      return entry;
+    }
+
+    const activeSpeech = currentSpeechPromise;
+    Promise.all([
+      delayTracked(minMs, entry),
+      raceWithTimeoutTracked(activeSpeech, maxMs, entry)
+    ]).then(() => {
+      if (entry.cancelled) return;
+      const latestSpeech = currentSpeechPromise;
+      const elapsed = Date.now() - startTime;
+      const remainingMs = Math.max(0, maxMs - elapsed);
+      if (latestSpeech && latestSpeech !== activeSpeech && remainingMs > 50) {
+        return raceWithTimeoutTracked(latestSpeech, remainingMs, entry);
+      }
+    }).then(() => {
+      if (entry.cancelled) return;
+      return delayTracked(260, entry);
+    }).then(finalize);
+
+    return entry;
+  }
+
+  function setPrompt(zh, en, shouldSpeak = true, opts = {}) {
     const state = HMC.state;
     const finalZh = personalizeZh(zh || '');
+    const finalEn = typeof en === 'string' ? en : '';
+    const voiceStyle = (opts && opts.voiceStyle) || 'daily';
     state.lastPromptZh = finalZh;
-    state.lastPromptEn = en || '';
+    state.lastPromptEn = finalEn;
+    state.lastPromptVoiceStyle = voiceStyle;
     const promptTextEl = document.getElementById('promptText');
     if (promptTextEl) {
-      if (state.lang === 'en') promptTextEl.textContent = en || finalZh;
-      else if (state.lang === 'bi') promptTextEl.textContent = en ? `${finalZh} · ${en}` : finalZh;
+      if (state.lang === 'en') promptTextEl.textContent = finalEn || finalZh;
+      else if (state.lang === 'bi') promptTextEl.textContent = finalEn ? `${finalZh} · ${finalEn}` : finalZh;
       else promptTextEl.textContent = finalZh;
     }
-    if (shouldSpeak) speak(finalZh, en);
+    if (shouldSpeak) return speak(finalZh, finalEn, opts);
+    return currentSpeechPromise;
   }
 
-  function praiseWithPrompt(zhText, enText = '') {
-    const personalizedZh = withNick(zhText);
-    setPrompt(personalizedZh, enText, false);
-    return playParentClip('praise', personalizedZh, enText);
+  function praiseWithPrompt(zhText, enText = '', opts = {}) {
+    const cleanZh = withNick(zhText);
+    setPrompt(cleanZh, enText, false, opts);
+    return playParentClip('praise', cleanZh, enText, null, opts);
   }
 
   function initVoices() {
-    if ('speechSynthesis' in window) {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.getVoices();
       window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
     }
@@ -7856,13 +8215,186 @@ window.__HMC_SINGLE_FILE__ = true;
     getNick,
     personalizeZh,
     withNick,
+    normalizeVoiceKey,
     stopParentClip,
+    stopAllSpeech,
+    cancelPendingTransitions,
+    isSpeaking,
+    getSpeechGen,
+    getCurrentSpeechPromise,
     playParentClip,
     pickVoice,
     speak,
+    waitForSpeechThen,
     setPrompt,
     praiseWithPrompt,
     initVoices
+  };
+})(window.HMC = window.HMC || {});
+
+// === js/voice-pack.js ===
+(function (HMC) {
+  'use strict';
+
+  // Auto-generated by scripts/generate-voices.py
+  // Daily Chinese: zh-CN-YunxiaNeural (-4%) | Bedtime Chinese: zh-CN-XiaoxiaoNeural (-6%) | English: en-US-AnaNeural (-4%)
+  const EXACT_ZH_DAILY = {"点草地任意地方，快乐小鸡就跑过去下蛋哦！":"zd_a6429cf93d","太阳公公笑眯眯！":"zd_c991b9cf04","下雨啦！小泥坑变大啦！":"zd_6ecf2ba7dc","雨停啦！天空出现美丽的彩虹！":"zd_f6566758eb","晴天啦！太阳公公笑眯眯！":"zd_4d665a42af","咕叽咕叽！小猪佩奇最喜欢跳泥坑啦！":"zd_f2d2af651b","早上好！快乐小鸡睡醒啦！":"zd_9da14e1a4f","哇！集齐五颗星啦！快乐小鸡大派对！":"zd_b3d204ae07","你真棒！答对啦！":"zd_ad49c6baf7","咯咯哒！下蛋啦！":"zd_59eac5d627","咯咯哒！快乐小鸡下蛋啦！":"zd_238141efdf","哈哈！小鸡跳进大泥坑啦，咕叽咕叽！":"zd_4e3cb4f312","咻！小鸡滑滑梯下来啦！":"zd_a7de9e721b","哇！小鸡在蹦蹦床上飞高高啦！":"zd_a4f97b5b33","先在草地上孵出小鸡，就可以抓小鸡来滑滑梯啦！":"zd_913ab78dea","先在草地上孵出小鸡，就可以抓小鸡来跳蹦蹦床啦！":"zd_b980f8b412","先在草地上孵出小鸡，就可以抓小鸡来跳泥坑啦！":"zd_3881f532b0","小锤子拿好啦！点一下彩虹金蛋砸开它吧！":"zd_f29f0e8383","小锤子拿在手里呢！去点发光的彩虹金蛋，或再点右下角放下小锤子！":"zd_78163bd54d","这颗彩虹金蛋硬邦邦的！抓起或点一下右下角的小锤子砸开它吧！":"zd_dd00b9e973","等快乐小鸡下出闪亮的彩虹金蛋，再用小锤子砸开它吧！":"zd_aac66a78e7","小锤子收好啦！点草地任意地方继续下蛋哦！":"zd_6160a8f933","拖到发光的彩虹金蛋上砸一砸，或者点一下右下角小锤子再敲金蛋吧！":"zd_a48414ef3b","哇！下了一颗闪闪发光的彩虹金蛋！用右下角的小锤子砸一下看看里面是谁！":"zd_b9b166c28a","草地收干净啦！点草地任意地方继续下蛋吧！":"zd_960dd4d177","哇，草地上已经摆满15个啦！我们收进篮子重新玩吧！":"zd_e8d77e5b26","先选一瓶香香的泡泡液倒进浴缸吧！":"zd_2f55eebd25","哇！香甜的草莓粉泡泡来啦！抓住海绵搓掉小泥点吧！":"zd_3e43ca90f1","哇！清爽的柠檬黄泡泡来啦！抓住海绵搓掉小泥点吧！":"zd_d85a07f2d7","哇！梦幻的蓝莓蓝泡泡来啦！抓住海绵搓掉小泥点吧！":"zd_ae0c0c8e1b","全身都是香香泡泡啦！现在抓起花洒冲干净吧！":"zd_e936c5757d","哗啦啦甩干水珠！快拖起吹风机把毛毛吹蓬松吧！":"zd_cb6476958a","洗白白吹蓬松，香喷喷的，你真棒！":"zd_486082ec67","选一个喜欢的牙膏口味，帮小鸡把牙膏挤到牙刷上吧！":"zd_5f42cf7ea2","牙膏挤好啦！张大嘴巴，打跑蛀牙小怪兽！":"zd_17c2e5384e","蛀牙怪兽全跑啦！拖起小水杯帮小鸡咕噜咕噜漱口吧！":"zd_ffd49a974f","牙齿亮晶晶真棒！挑一个陪睡小伙伴抱进怀里吧！":"zd_cf840d7e3f","自由弹琴时间！点一点彩虹小鸡唱歌吧！":"zd_771f633ebb","把蛋蛋从小到大排排队吧！先找最小的！":"zd_472130e988","把小鸡从小到大排排队吧！先找最小的！":"zd_117c3279ee","请把蛋蛋从最小到最大排排队吧！":"zd_51f6a5661f","请把小鸡从最小到最大排排队吧！":"zd_5a6d72d3a1","排得真整齐，从小到大一二三！":"zd_7fcbe0530d","排得真整齐，从小到大一二三四！":"zd_f55643712f","再仔细比一比，还有一只更小一点的哦！":"zd_9dfe16e3f7","再仔细比一比，还有一颗更小一点的哦！":"zd_24c192b5e2","没关系，我们一起数一数草地上现在有几只小鸡吧！":"zd_3da57ad0ca","太棒啦！所有线索全都答对，小侦探真厉害！":"zd_d1a2b6a9b3","颜色和形状都对啦，可是大小不对哦，我们要找大大的那个！":"zd_6ef9deb0b1","颜色和形状都对啦，可是大小不对哦，我们要找小小的那个！":"zd_6d868274ab","再核对一下线索吧！":"zd_e1071f32b0","再看看图里的虚线形状哦！":"zd_05b2313283","仔细看四个蛋上的形状，哪一个和大家不一样？":"zd_f5276b1edc","火眼金睛！哪一个蛋的形状和大家不一样？":"zd_3b289c3128","咯咯哒！快乐小鸡今天的装扮真漂亮呀！":"zd_fae8114503","哇！换上新造型啦，快乐小鸡真漂亮！":"zd_25768cd78d","全部脱下啦，干干净净的快乐小鸡！":"zd_330a405a6f","敲开草地上的彩虹金蛋来遇见它吧！":"zd_05f07586ae","脱下啦，换件漂亮的试试吧！":"zd_b9f4b2ffcf","多玩几关收集星星，就能解锁这件漂亮装扮啦！":"zd_131602b358","嗷呜！孵出了乔治最爱的绿色小恐龙！":"zd_00a43fe8e1","嘎嘎！孵出了爱跳泥坑的小黄鸭！":"zd_3a21eeae5b","蹦蹦跳跳！孵出了草莓垂耳小兔！":"zd_3a7df175f5","抱一抱！孵出了爱吃蜂蜜的小熊熊！":"zd_113fbc2b3a","喵呜！孵出了爱打呼噜的奶牛小花猫！":"zd_029fa5e595","啃竹子咯！孵出了圆滚滚的小熊猫！":"zd_bc0e249de4","哇！孵出了会变星星魔术的魔法小鸡！":"zd_cc2ec028ac","好美呀！孵出了七彩彩虹翅膀小鸡！":"zd_4d65fb0195","叮铃铃！孵出了闪闪发光的独角兽小鸡！":"zd_0e7063b4c9","花香飘飘！孵出了温柔的花仙子小鸡！":"zd_1c0b5f9c69","转个圈圈！孵出了戴皇冠的公主小鸡！":"zd_f79a3aacda","咕噜咕噜！孵出了会吐泡泡的人鱼小鸡！":"zd_19a04c8f77","甜蜜蜜！孵出了草莓奶油小鸡！":"zd_3672d3b7e7","香喷喷！孵出了软绵绵的纸杯蛋糕小鸡！":"zd_350965ef8e","咬一口！孵出了彩虹糖霜甜甜圈鸡！":"zd_35834be4dd","冰凉凉！孵出了甜筒冰淇淋小鸡！":"zd_3f2a15eb8a","水灵灵！孵出了粉红水蜜桃小鸡！":"zd_ea696d00ba","晃呀晃！孵出了Q弹的焦糖布丁小鸡！":"zd_865d9bb601","出发去太空！孵出了太空宇航员鸡！":"zd_ffebaa9b17","听听心跳！孵出了温柔的爱心小医生鸡！":"zd_d09a5f190f","叮咚出炉！孵出了手艺超棒的大厨蛋糕鸡！":"zd_3f52499cc2","呜哇呜哇！孵出了超勇敢的消防员鸡！":"zd_a2a1505e83","扬帆起航！孵出了爱寻宝的小船长鸡！":"zd_e1e1537329","画道彩虹！孵出了爱画画的小画家鸡！":"zd_c09cccbbc0","咯咯哒！第1个蛋，等一会儿自己就会孵出小鸡哦！":"zd_0dbbeb9433","哇！孵出了第1只小鸡！叽叽叽！":"zd_4699e5ed56","第1只小鸡，叽叽叽！":"zd_aec3b4a7a2","哇！小鸡都孵出来啦，草地上有1位小伙伴！":"zd_15f57cf699","咯咯哒！第2个蛋，等一会儿自己就会孵出小鸡哦！":"zd_6c51cba95e","哇！孵出了第2只小鸡！叽叽叽！":"zd_6e31f38f4b","第2只小鸡，叽叽叽！":"zd_a296f4c7e9","哇！小鸡都孵出来啦，草地上有2位小伙伴！":"zd_77f30401df","咯咯哒！第3个蛋，等一会儿自己就会孵出小鸡哦！":"zd_d9aa40b335","哇！孵出了第3只小鸡！叽叽叽！":"zd_46b1c25f57","第3只小鸡，叽叽叽！":"zd_4fba3ce6f8","哇！小鸡都孵出来啦，草地上有3位小伙伴！":"zd_13edbfb2d3","咯咯哒！第4个蛋，等一会儿自己就会孵出小鸡哦！":"zd_2757bcf602","哇！孵出了第4只小鸡！叽叽叽！":"zd_b42e8bf0de","第4只小鸡，叽叽叽！":"zd_07b1bad000","哇！小鸡都孵出来啦，草地上有4位小伙伴！":"zd_19a5f55e8d","哇！下了5个蛋啦！等一会儿自己就会孵出小鸡哦！":"zd_78a31083df","哇！孵出了第5只小鸡！叽叽叽！":"zd_76245c465a","第5只小鸡，叽叽叽！":"zd_99f9814621","哇！小鸡都孵出来啦，草地上有5位小伙伴！":"zd_b815d639fa","咯咯哒！第6个蛋，等一会儿自己就会孵出小鸡哦！":"zd_2fafcd0c36","哇！孵出了第6只小鸡！叽叽叽！":"zd_0cc3479605","第6只小鸡，叽叽叽！":"zd_f6c0f98e66","哇！小鸡都孵出来啦，草地上有6位小伙伴！":"zd_7a95f6bb0f","咯咯哒！第7个蛋，等一会儿自己就会孵出小鸡哦！":"zd_8d0fbec8b9","哇！孵出了第7只小鸡！叽叽叽！":"zd_13cf73b95d","第7只小鸡，叽叽叽！":"zd_daf9074719","哇！小鸡都孵出来啦，草地上有7位小伙伴！":"zd_5dd9b84109","咯咯哒！第8个蛋，等一会儿自己就会孵出小鸡哦！":"zd_ac8b3580ea","哇！孵出了第8只小鸡！叽叽叽！":"zd_0d711ab6f9","第8只小鸡，叽叽叽！":"zd_b1acd6f471","哇！小鸡都孵出来啦，草地上有8位小伙伴！":"zd_161b118c78","咯咯哒！第9个蛋，等一会儿自己就会孵出小鸡哦！":"zd_5da7da0a49","哇！孵出了第9只小鸡！叽叽叽！":"zd_f8ff98bccd","第9只小鸡，叽叽叽！":"zd_418785f0e2","哇！小鸡都孵出来啦，草地上有9位小伙伴！":"zd_e8d4b8189f","哇！下了10个蛋啦！等一会儿自己就会孵出小鸡哦！":"zd_095aa48274","哇！孵出了第10只小鸡！叽叽叽！":"zd_c2c17c0167","第10只小鸡，叽叽叽！":"zd_c08d44c4df","哇！小鸡都孵出来啦，草地上有10位小伙伴！":"zd_b3bd5a1052","咯咯哒！第11个蛋，等一会儿自己就会孵出小鸡哦！":"zd_0458c19e1d","哇！孵出了第11只小鸡！叽叽叽！":"zd_a349f09a7f","第11只小鸡，叽叽叽！":"zd_5edaad2009","哇！小鸡都孵出来啦，草地上有11位小伙伴！":"zd_5d8c9e84f3","咯咯哒！第12个蛋，等一会儿自己就会孵出小鸡哦！":"zd_f24a964c07","哇！孵出了第12只小鸡！叽叽叽！":"zd_21b24f974b","第12只小鸡，叽叽叽！":"zd_1ab53caffe","哇！小鸡都孵出来啦，草地上有12位小伙伴！":"zd_05caa6a7c0","咯咯哒！第13个蛋，等一会儿自己就会孵出小鸡哦！":"zd_e624d367db","哇！孵出了第13只小鸡！叽叽叽！":"zd_4d6faea3d8","第13只小鸡，叽叽叽！":"zd_b340bd4949","哇！小鸡都孵出来啦，草地上有13位小伙伴！":"zd_5ef61602cd","咯咯哒！第14个蛋，等一会儿自己就会孵出小鸡哦！":"zd_71024ecb72","哇！孵出了第14只小鸡！叽叽叽！":"zd_fa611d50c6","第14只小鸡，叽叽叽！":"zd_2ee0b0b46e","哇！小鸡都孵出来啦，草地上有14位小伙伴！":"zd_da6cd0e342","哇！下了15个蛋啦！等一会儿自己就会孵出小鸡哦！":"zd_175a79fae4","哇！孵出了第15只小鸡！叽叽叽！":"zd_a99df5fa6d","第15只小鸡，叽叽叽！":"zd_1c46cff9de","哇！小鸡都孵出来啦，草地上有15位小伙伴！":"zd_c8fc80d611","把红色的蛋，放到红色的窝里吧！":"zd_4ba3005529","真棒！这就是红色！":"zd_d154820708","这是红色的窝哦，":"zd_00b5c8e126","再找找红色吧！":"zd_d2b27bc99e","把黄色的蛋，放到黄色的窝里吧！":"zd_bb48c7170e","真棒！这就是黄色！":"zd_bd5ba47296","这是黄色的窝哦，":"zd_ddf9630f24","再找找黄色吧！":"zd_cbc68c94d6","把蓝色的蛋，放到蓝色的窝里吧！":"zd_1d787b74e9","真棒！这就是蓝色！":"zd_34e5bd081b","这是蓝色的窝哦，":"zd_91bb614dd4","再找找蓝色吧！":"zd_e3a36b57a9","把绿色的蛋，放到绿色的窝里吧！":"zd_da2ae2e562","真棒！这就是绿色！":"zd_ca69a2e3f8","这是绿色的窝哦，":"zd_e6268fefad","再找找绿色吧！":"zd_a165c7ca2e","把粉色的蛋，放到粉色的窝里吧！":"zd_40b65637c4","真棒！这就是粉色！":"zd_92a357150f","这是粉色的窝哦，":"zd_c20d766377","再找找粉色吧！":"zd_eb39aae216","把紫色的蛋，放到紫色的窝里吧！":"zd_20c8a52418","真棒！这就是紫色！":"zd_bd647b46b3","这是紫色的窝哦，":"zd_7c984e8649","再找找紫色吧！":"zd_db58fcda15","放进了红色，再选第二种颜色吧！":"zd_3be6294cec","放进了黄色，再选第二种颜色吧！":"zd_e6b7491c97","放进了蓝色，再选第二种颜色吧！":"zd_7b72ce2aa0","放进了白色，再选第二种颜色吧！":"zd_25c9c2d887","调色魔法：红色加什么颜色，能变出橙色蛋？":"zd_d38b6437a5","调色魔法：黄色加什么颜色，能变出橙色蛋？":"zd_0162774628","魔法挑战！选两种颜色合在一起，变出橙色蛋吧！":"zd_16c1605605","太厉害啦！红色加黄色，真的变出了橙色！":"zd_d8864d32ef","太厉害啦！黄色加红色，真的变出了橙色！":"zd_f9dc9e6284","我们要变出橙色，再试一次吧！":"zd_b28c16e7a1","调色魔法：黄色加什么颜色，能变出绿色蛋？":"zd_57951955b3","调色魔法：蓝色加什么颜色，能变出绿色蛋？":"zd_8a1874de6a","魔法挑战！选两种颜色合在一起，变出绿色蛋吧！":"zd_2ffdb90558","太厉害啦！黄色加蓝色，真的变出了绿色！":"zd_57471901ef","太厉害啦！蓝色加黄色，真的变出了绿色！":"zd_45a974f927","我们要变出绿色，再试一次吧！":"zd_004111878b","调色魔法：红色加什么颜色，能变出紫色蛋？":"zd_9e36c7ba40","调色魔法：蓝色加什么颜色，能变出紫色蛋？":"zd_17a5599638","魔法挑战！选两种颜色合在一起，变出紫色蛋吧！":"zd_0472d6fec8","太厉害啦！红色加蓝色，真的变出了紫色！":"zd_52d7d8c59f","太厉害啦！蓝色加红色，真的变出了紫色！":"zd_13822fa527","我们要变出紫色，再试一次吧！":"zd_3a293955ee","调色魔法：红色加什么颜色，能变出粉色蛋？":"zd_58df7436ac","调色魔法：白色加什么颜色，能变出粉色蛋？":"zd_fa22203026","魔法挑战！选两种颜色合在一起，变出粉色蛋吧！":"zd_0fa6af9b6c","太厉害啦！红色加白色，真的变出了粉色！":"zd_2e182bcb9a","太厉害啦！白色加红色，真的变出了粉色！":"zd_81dd7b461a","我们要变出粉色，再试一次吧！":"zd_d4a3d51940","调色魔法：蓝色加什么颜色，能变出天蓝色蛋？":"zd_627629771c","调色魔法：白色加什么颜色，能变出天蓝色蛋？":"zd_ae845eab56","魔法挑战！选两种颜色合在一起，变出天蓝色蛋吧！":"zd_00c944527e","太厉害啦！蓝色加白色，真的变出了天蓝色！":"zd_6b11f47142","太厉害啦！白色加蓝色，真的变出了天蓝色！":"zd_9a11d9ba4c","我们要变出天蓝色，再试一次吧！":"zd_5198ea6527","哇，红色加红色变成了红色哦！":"zd_d04c3a3457","哇，红色加黄色变成了橙色哦！":"zd_7334bd7b6f","哇，红色加蓝色变成了紫色哦！":"zd_8617306a43","哇，红色加白色变成了粉色哦！":"zd_9ee494ee5f","哇，黄色加红色变成了橙色哦！":"zd_f813f9310e","哇，黄色加黄色变成了黄色哦！":"zd_f825a63423","哇，黄色加蓝色变成了绿色哦！":"zd_54a45f95ed","哇，黄色加白色变成了淡黄色哦！":"zd_0324be3501","哇，蓝色加红色变成了紫色哦！":"zd_fc5e9c2199","哇，蓝色加黄色变成了绿色哦！":"zd_24bc2948ca","哇，蓝色加蓝色变成了蓝色哦！":"zd_b7ce1ae9fd","哇，蓝色加白色变成了天蓝色哦！":"zd_986130a067","哇，白色加红色变成了粉色哦！":"zd_cdb94b8aa2","哇，白色加黄色变成了淡黄色哦！":"zd_0e78dda55d","哇，白色加蓝色变成了天蓝色哦！":"zd_ed952eedd9","哇，白色加白色变成了白色哦！":"zd_546d67361a","真聪明！规律接龙成功，问号就是红色！":"zd_88175a8afe","不是红色哦，":"zd_a84ed1c2bd","红":"zd_d088e65280","真聪明！规律接龙成功，问号就是黄色！":"zd_240ed8c21a","不是黄色哦，":"zd_a4132e646d","黄":"zd_12401e3443","真聪明！规律接龙成功，问号就是蓝色！":"zd_8adce79a9a","不是蓝色哦，":"zd_285234993f","蓝":"zd_2fc8da5242","真聪明！规律接龙成功，问号就是绿色！":"zd_592b87d557","不是绿色哦，":"zd_0ec4a7c6c5","绿":"zd_806c438835","真聪明！规律接龙成功，问号就是粉色！":"zd_e0e5f2bde4","不是粉色哦，":"zd_61ebf4bd0e","粉":"zd_8bb6651f01","真聪明！规律接龙成功，问号就是紫色！":"zd_cf81a07591","不是紫色哦，":"zd_3f276dff97","紫":"zd_34e66c72bf","真聪明！规律接龙成功，问号就是橙色！":"zd_7a0a5a8ac2","不是橙色哦，":"zd_fabd3647ea","橙":"zd_b990b42b77","找规律：":"zd_818b18990d","听规律哦：":"zd_2c0cb12afd","问号":"zd_e28fbce2fe","问号该放什么颜色？":"zd_081db51b0d","再一起念一遍！":"zd_e6909a6b8f","小鸡饿啦！请喂它吃1颗玉米吧！":"zd_f0322698ab","小鸡饿啦，请喂我吃1颗玉米吧！":"zd_f5ec9e24e2","哇！刚刚好1颗玉米，真聪明！":"zd_5f3bf20378","1":"zd_c4ca4238a0","小鸡饿啦！请喂它吃2颗玉米吧！":"zd_d5584f9510","小鸡饿啦，请喂我吃2颗玉米吧！":"zd_548f0dd597","哇！刚刚好2颗玉米，真聪明！":"zd_3f325fbcd4","2":"zd_c81e728d9d","小鸡饿啦！请喂它吃3颗玉米吧！":"zd_b7219de7b8","小鸡饿啦，请喂我吃3颗玉米吧！":"zd_a9f0554606","哇！刚刚好3颗玉米，真聪明！":"zd_2408464705","3":"zd_eccbc87e4b","小鸡饿啦！请喂它吃4颗玉米吧！":"zd_27d31491b5","小鸡饿啦，请喂我吃4颗玉米吧！":"zd_aabf426ab0","哇！刚刚好4颗玉米，真聪明！":"zd_82c943ab83","4":"zd_a87ff679a2","小鸡饿啦！请喂它吃5颗玉米吧！":"zd_0d3b3a79c6","小鸡饿啦，请喂我吃5颗玉米吧！":"zd_7a84a0adbe","哇！刚刚好5颗玉米，真聪明！":"zd_7934f8b8ef","5":"zd_e4da3b7fbb","小鸡饿啦！请喂它吃6颗玉米吧！":"zd_33f0cafea2","小鸡饿啦，请喂我吃6颗玉米吧！":"zd_c127cb1c28","哇！刚刚好6颗玉米，真聪明！":"zd_0d0fb1398b","6":"zd_1679091c5a","小鸡饿啦！请喂它吃7颗玉米吧！":"zd_d4e687163f","小鸡饿啦，请喂我吃7颗玉米吧！":"zd_a64ebcaf14","哇！刚刚好7颗玉米，真聪明！":"zd_52a0e49e3e","7":"zd_8f14e45fce","小鸡饿啦！请喂它吃8颗玉米吧！":"zd_a40cc71f94","小鸡饿啦，请喂我吃8颗玉米吧！":"zd_2182e17032","哇！刚刚好8颗玉米，真聪明！":"zd_546e5b697d","8":"zd_c9f0f895fb","这颗小蛋蛋小小的，找一个小小的窝吧！":"zd_36fbdf78c9","帮这颗小蛋找到刚刚好的小窝吧！":"zd_55d27c85eb","太棒啦！小蛋住进小窝里，刚刚好！":"zd_90dd9c336a","这颗小蛋小小的，中窝太大啦，找一个小一点的窝吧！":"zd_2e8c21e8a3","这颗小蛋小小的，大窝太大啦，找一个小一点的窝吧！":"zd_ef2448a9a3","帮这颗中蛋找到刚刚好的中窝吧！":"zd_ca3ec0a9db","太棒啦！中蛋住进中窝里，刚刚好！":"zd_0a4a9e997d","这颗中蛋太大啦，小窝装不下哦，试试更大的窝！":"zd_b3ec6a840e","这颗中蛋小小的，大窝太大啦，找一个小一点的窝吧！":"zd_dac4133ea5","帮这颗大蛋找到刚刚好的大窝吧！":"zd_dae183c2f8","太棒啦！大蛋住进大窝里，刚刚好！":"zd_72075c8dcb","这颗大蛋太大啦，小窝装不下哦，试试更大的窝！":"zd_e5560bfad0","这颗大蛋太大啦，中窝装不下哦，试试更大的窝！":"zd_fd0b29ce84","放好第1个啦，再找剩下的里面最小的！":"zd_fe1e0d161a","放好第2个啦，再找剩下的里面最小的！":"zd_7b69c87762","放好第3个啦，再找剩下的里面最小的！":"zd_5c3f0ddc5d","草地上有1只小鸡，又孵出1只，现在一共有几只？":"zd_3ce5f889a5","答对啦！1加1等于2！":"zd_07c28715f1","草地上有1只小鸡，又孵出2只，现在一共有几只？":"zd_7207148866","答对啦！1加2等于3！":"zd_21607dc042","草地上有1只小鸡，又孵出3只，现在一共有几只？":"zd_928d77426f","答对啦！1加3等于4！":"zd_b339ef6bf2","草地上有1只小鸡，又孵出4只，现在一共有几只？":"zd_4364dfad79","答对啦！1加4等于5！":"zd_521c4e8651","草地上有2只小鸡，又孵出1只，现在一共有几只？":"zd_d25d14e6b2","答对啦！2加1等于3！":"zd_baa5e8a5c0","草地上有2只小鸡，又孵出2只，现在一共有几只？":"zd_283240b01d","答对啦！2加2等于4！":"zd_fd2d6ff419","草地上有2只小鸡，又孵出3只，现在一共有几只？":"zd_fda6d38511","答对啦！2加3等于5！":"zd_1a4be286cb","草地上有2只小鸡，又孵出4只，现在一共有几只？":"zd_14ea638a1c","答对啦！2加4等于6！":"zd_853cb7e2b9","草地上有3只小鸡，又孵出1只，现在一共有几只？":"zd_0576a27bb8","答对啦！3加1等于4！":"zd_a2d1bf3667","草地上有3只小鸡，又孵出2只，现在一共有几只？":"zd_df4082ec21","答对啦！3加2等于5！":"zd_e66bd3ee3a","草地上有3只小鸡，又孵出3只，现在一共有几只？":"zd_ab8eb7e0e3","答对啦！3加3等于6！":"zd_0f4fe72a0a","草地上有3只小鸡，又孵出4只，现在一共有几只？":"zd_84fc516e1f","答对啦！3加4等于7！":"zd_9d0e192b53","草地上有4只小鸡，又孵出1只，现在一共有几只？":"zd_4d78b7dd3d","答对啦！4加1等于5！":"zd_7c6f293307","草地上有4只小鸡，又孵出2只，现在一共有几只？":"zd_315a836d1d","答对啦！4加2等于6！":"zd_3571a82264","草地上有4只小鸡，又孵出3只，现在一共有几只？":"zd_1c9679e3c3","答对啦！4加3等于7！":"zd_492d71fbd1","草地上有4只小鸡，又孵出4只，现在一共有几只？":"zd_6ae48127fb","答对啦！4加4等于8！":"zd_93bdc02683","草地上有5只小鸡，又孵出1只，现在一共有几只？":"zd_556e0eddcc","答对啦！5加1等于6！":"zd_7bc7920d3a","草地上有5只小鸡，又孵出2只，现在一共有几只？":"zd_a7cd8c1f4f","答对啦！5加2等于7！":"zd_eba4daab6e","草地上有5只小鸡，又孵出3只，现在一共有几只？":"zd_ecb648c27a","答对啦！5加3等于8！":"zd_1c265867eb","草地上有3只小鸡，1只回家睡觉了，还剩几只？":"zd_9d61cc390b","答对啦！3减1等于2！":"zd_d2f41a08bc","草地上有3只小鸡，2只回家睡觉了，还剩几只？":"zd_b3cb1c2180","答对啦！3减2等于1！":"zd_21e5d539e3","草地上有4只小鸡，1只回家睡觉了，还剩几只？":"zd_a4526f9353","答对啦！4减1等于3！":"zd_0db537f8ad","草地上有4只小鸡，2只回家睡觉了，还剩几只？":"zd_50deb6e36a","答对啦！4减2等于2！":"zd_fc8c1c3d8a","草地上有4只小鸡，3只回家睡觉了，还剩几只？":"zd_621b27f89a","答对啦！4减3等于1！":"zd_3839d2d869","草地上有5只小鸡，1只回家睡觉了，还剩几只？":"zd_f41b7d5477","答对啦！5减1等于4！":"zd_7ac344944f","草地上有5只小鸡，2只回家睡觉了，还剩几只？":"zd_7441eececb","答对啦！5减2等于3！":"zd_5d25078f01","草地上有5只小鸡，3只回家睡觉了，还剩几只？":"zd_d6655e08bb","答对啦！5减3等于2！":"zd_8cdca721a6","草地上有5只小鸡，4只回家睡觉了，还剩几只？":"zd_0e703bc281","答对啦！5减4等于1！":"zd_76ae09d147","草地上有6只小鸡，1只回家睡觉了，还剩几只？":"zd_6e0951fc9f","答对啦！6减1等于5！":"zd_8856d98090","草地上有6只小鸡，2只回家睡觉了，还剩几只？":"zd_e084cfb1f8","答对啦！6减2等于4！":"zd_da64a1a668","草地上有6只小鸡，3只回家睡觉了，还剩几只？":"zd_ade9c01832","答对啦！6减3等于3！":"zd_f8d5cd2e0f","草地上有6只小鸡，4只回家睡觉了，还剩几只？":"zd_cf3c33198b","答对啦！6减4等于2！":"zd_eaac90ae3c","草地上有7只小鸡，1只回家睡觉了，还剩几只？":"zd_e790267fa4","答对啦！7减1等于6！":"zd_9ea8c18f2b","草地上有7只小鸡，2只回家睡觉了，还剩几只？":"zd_655d739104","答对啦！7减2等于5！":"zd_3fe316f00c","草地上有7只小鸡，3只回家睡觉了，还剩几只？":"zd_e9800cf3c7","答对啦！7减3等于4！":"zd_1444725d35","草地上有7只小鸡，4只回家睡觉了，还剩几只？":"zd_53f7b3c6e3","答对啦！7减4等于3！":"zd_bd53dbbf9d","草地上有8只小鸡，1只回家睡觉了，还剩几只？":"zd_d9abb1b07e","答对啦！8减1等于7！":"zd_f12cdc1c30","草地上有8只小鸡，2只回家睡觉了，还剩几只？":"zd_1af789ff58","答对啦！8减2等于6！":"zd_18af7a6e0e","草地上有8只小鸡，3只回家睡觉了，还剩几只？":"zd_e15f57d909","答对啦！8减3等于5！":"zd_1cc8a016a4","草地上有8只小鸡，4只回家睡觉了，还剩几只？":"zd_ed270e2171","答对啦！8减4等于4！":"zd_19e0378594","找找一样的圆形在哪里？":"zd_263ff860f1","找一找一样的圆形吧！":"zd_39c3938486","答对啦！这是圆形！":"zd_ff58bb1644","这是圆形哦，":"zd_5fca159a20","再找找圆形吧！":"zd_115feb24df","找找一样的三角形在哪里？":"zd_505fcf93f7","找一找一样的三角形吧！":"zd_b94b776d47","答对啦！这是三角形！":"zd_903c7a1f21","这是三角形哦，":"zd_b6517bcbee","再找找三角形吧！":"zd_615bcc7d2f","找找一样的正方形在哪里？":"zd_06aa4d45c0","找一找一样的正方形吧！":"zd_08eac1b07a","答对啦！这是正方形！":"zd_9f7f04450c","这是正方形哦，":"zd_a575669c15","再找找正方形吧！":"zd_d8b308249d","找找一样的星星在哪里？":"zd_b6690f04af","找一找一样的星星吧！":"zd_8c2461e369","答对啦！这是星星！":"zd_db818c1de9","这是星星哦，":"zd_a4695e9d2a","再找找星星吧！":"zd_1ee9ffb582","找找一样的爱心在哪里？":"zd_4174ef7853","找一找一样的爱心吧！":"zd_93acda8950","答对啦！这是爱心！":"zd_93ce44f9e6","这是爱心哦，":"zd_e90fcc34db","再找找爱心吧！":"zd_6a80c037b6","小侦探，找出":"zd_6e71fb52e7","大大的":"zd_1ff1251bb1","小小的":"zd_8a4a7ad92d","红色的":"zd_ab1e9e8abc","但颜色是红色哦，":"zd_ec91d5575e","我们要找红色的！":"zd_2271aa3693","黄色的":"zd_450b7ac7b3","但颜色是黄色哦，":"zd_6b36fecac3","我们要找黄色的！":"zd_fa1dc9e303","蓝色的":"zd_500d77e8a2","但颜色是蓝色哦，":"zd_e54e436528","我们要找蓝色的！":"zd_7322575bbf","绿色的":"zd_e1cc201e8b","但颜色是绿色哦，":"zd_8c5f85e85d","我们要找绿色的！":"zd_b4234f97b0","粉色的":"zd_c9ac9d110b","但颜色是粉色哦，":"zd_b1e7606f7b","我们要找粉色的！":"zd_7a0667bf9b","紫色的":"zd_631b1f0c07","但颜色是紫色哦，":"zd_b91149ce01","我们要找紫色的！":"zd_20c6e8db3c","圆形蛋！":"zd_14a10dc635","形状是圆形没错，":"zd_4377f7bf23","颜色对了，可是上面的形状是圆形哦，":"zd_35932e5ebc","我们要找圆形！":"zd_ae25591f97","拼上圆形啦！继续拼搭吧！":"zd_58df19db1b","太厉害啦！其他三个都是圆形，":"zd_338fa4598c","只有这个是圆形！":"zd_e4c82cf7b2","这个是圆形，另外还有两个也是圆形哦，不要看颜色，再找形状不一样的！":"zd_86c5e2d5cc","三角形蛋！":"zd_afc454fc66","形状是三角形没错，":"zd_ccd3205aef","颜色对了，可是上面的形状是三角形哦，":"zd_1dcb7121c1","我们要找三角形！":"zd_971131669e","拼上三角形啦！继续拼搭吧！":"zd_1cda93bdb1","太厉害啦！其他三个都是三角形，":"zd_7d87b77d73","只有这个是三角形！":"zd_34d4d54075","这个是三角形，另外还有两个也是三角形哦，不要看颜色，再找形状不一样的！":"zd_b28ca95ed5","正方形蛋！":"zd_916edae7ad","形状是正方形没错，":"zd_703f9fa455","颜色对了，可是上面的形状是正方形哦，":"zd_6315cdf6af","我们要找正方形！":"zd_e520b4f871","拼上正方形啦！继续拼搭吧！":"zd_b30c2e9ab5","太厉害啦！其他三个都是正方形，":"zd_7cd4c366af","只有这个是正方形！":"zd_9a3a6bc1a4","这个是正方形，另外还有两个也是正方形哦，不要看颜色，再找形状不一样的！":"zd_adb12ff7ec","长方形蛋！":"zd_d0d38780db","形状是长方形没错，":"zd_c669dcd131","颜色对了，可是上面的形状是长方形哦，":"zd_fd2bbef428","我们要找长方形！":"zd_b5bca977cd","拼上长方形啦！继续拼搭吧！":"zd_3bae981856","太厉害啦！其他三个都是长方形，":"zd_228ed72dc5","只有这个是长方形！":"zd_fb12b87f19","这个是长方形，另外还有两个也是长方形哦，不要看颜色，再找形状不一样的！":"zd_18ea250303","菱形蛋！":"zd_6ed7334a0a","形状是菱形没错，":"zd_e96b42da91","颜色对了，可是上面的形状是菱形哦，":"zd_2216c52fa8","我们要找菱形！":"zd_bb8d940b59","拼上菱形啦！继续拼搭吧！":"zd_413959fc60","太厉害啦！其他三个都是菱形，":"zd_2b8d1cdf8d","只有这个是菱形！":"zd_028a7fce1d","这个是菱形，另外还有两个也是菱形哦，不要看颜色，再找形状不一样的！":"zd_a1f23199b2","半圆形蛋！":"zd_137a5e97c3","形状是半圆形没错，":"zd_2bf4123ee1","颜色对了，可是上面的形状是半圆形哦，":"zd_275b136570","我们要找半圆形！":"zd_30095bb0eb","拼上半圆形啦！继续拼搭吧！":"zd_c111a7b46b","太厉害啦！其他三个都是半圆形，":"zd_75621357bf","只有这个是半圆形！":"zd_bda2f6a734","这个是半圆形，另外还有两个也是半圆形哦，不要看颜色，再找形状不一样的！":"zd_ef6013ec8a","星星蛋！":"zd_13d0ebef4d","形状是星星没错，":"zd_4f8fadd9cb","颜色对了，可是上面的形状是星星哦，":"zd_1377c649be","我们要找星星！":"zd_53bd78c95a","拼上星星啦！继续拼搭吧！":"zd_6c28c18b36","太厉害啦！其他三个都是星星，":"zd_575a316a17","只有这个是星星！":"zd_d98e1f38d6","这个是星星，另外还有两个也是星星哦，不要看颜色，再找形状不一样的！":"zd_35d9d5a9eb","爱心蛋！":"zd_a0c8e486f9","形状是爱心没错，":"zd_7c0115c75e","颜色对了，可是上面的形状是爱心哦，":"zd_d5e6c32f08","我们要找爱心！":"zd_cbe3f8233a","拼上爱心啦！继续拼搭吧！":"zd_42718d0e1c","太厉害啦！其他三个都是爱心，":"zd_f71a1f6d79","只有这个是爱心！":"zd_9f0e8a0fb2","这个是爱心，另外还有两个也是爱心哦，不要看颜色，再找形状不一样的！":"zd_963b6a9ea4","用下面的形状积木，帮小鸡拼出一座小房子吧！":"zd_063d35b73d","哇！拼出了完整的小房子，你是小小建筑师！":"zd_18d90276e9","用下面的形状积木，帮小鸡拼出一座冰淇淋吧！":"zd_9b85d8464a","哇！拼出了完整的冰淇淋，你是小小建筑师！":"zd_fb251f4e79","用下面的形状积木，帮小鸡拼出一座小火箭吧！":"zd_4ea3c3233e","哇！拼出了完整的小火箭，你是小小建筑师！":"zd_017ab2fc75","用下面的形状积木，帮小鸡拼出一座小帆船吧！":"zd_7bdb742650","哇！拼出了完整的小帆船，你是小小建筑师！":"zd_a9d7d4cb1f","用下面的形状积木，帮小鸡拼出一座圣诞树吧！":"zd_525466b5a7","哇！拼出了完整的圣诞树，你是小小建筑师！":"zd_93a80fcd3c","用下面的形状积木，帮小鸡拼出一座魔法风筝吧！":"zd_6661365f03","哇！拼出了完整的魔法风筝，你是小小建筑师！":"zd_ee8cc7f031","跟着发光的小星星，一起弹《小星星》吧！":"zd_f261b81ee6","听完《小星星》示范啦，现在轮到你来弹哦！":"zd_dcf7337d95","太棒啦！你弹完了一整首《小星星》！":"zd_4ebe26a369","跟着发光的小星星，一起弹《两只老虎》吧！":"zd_95effa5eec","听完《两只老虎》示范啦，现在轮到你来弹哦！":"zd_7bbdd2719f","太棒啦！你弹完了一整首《两只老虎》！":"zd_1937c67f24","跟着发光的小星星，一起弹《粉刷匠》吧！":"zd_e576569ac6","听完《粉刷匠》示范啦，现在轮到你来弹哦！":"zd_b6160a05ea","太棒啦！你弹完了一整首《粉刷匠》！":"zd_9103a5f83e","穿上春日花环啦！真好看！":"zd_2974ba64c9","太棒啦！解锁了春日花环！":"zd_9b92e362be","穿上闪亮小皇冠啦！真好看！":"zd_c4e2152bf5","太棒啦！解锁了闪亮小皇冠！":"zd_9268f5178b","穿上软软兔耳朵啦！真好看！":"zd_277d7282a2","太棒啦！解锁了软软兔耳朵！":"zd_e6e3bb0130","穿上草莓贝雷帽啦！真好看！":"zd_eee2a3ef13","太棒啦！解锁了草莓贝雷帽！":"zd_fcf1b9435e","穿上彩虹独角兽角啦！真好看！":"zd_56d1f27195","太棒啦！解锁了彩虹独角兽角！":"zd_d447eaae0b","穿上星空魔法帽啦！真好看！":"zd_9be3f38675","太棒啦！解锁了星空魔法帽！":"zd_e71d12857f","穿上小花围裙啦！真好看！":"zd_74a5a26294","太棒啦！解锁了小花围裙！":"zd_6e60272bc4","穿上蓝牛仔背带裤啦！真好看！":"zd_002941c1b1","太棒啦！解锁了蓝牛仔背带裤！":"zd_080615114f","穿上小鸭黄雨衣啦！真好看！":"zd_64beedb49d","太棒啦！解锁了小鸭黄雨衣！":"zd_aff9ebfadb","穿上公主粉纱裙啦！真好看！":"zd_20d9f3a948","太棒啦！解锁了公主粉纱裙！":"zd_01794adc97","穿上星空芭蕾裙啦！真好看！":"zd_8650184fb1","太棒啦！解锁了星空芭蕾裙！":"zd_3bf896a002","穿上闪亮人鱼裙啦！真好看！":"zd_51879665df","太棒啦！解锁了闪亮人鱼裙！":"zd_c418852a57","穿上经典粉蝴蝶结啦！真好看！":"zd_1c91112f78","太棒啦！解锁了经典粉蝴蝶结！":"zd_a4ca9db366","穿上金色小铃铛啦！真好看！":"zd_1a8b6592c7","太棒啦！解锁了金色小铃铛！":"zd_8817b6d584","穿上彩虹暖围巾啦！真好看！":"zd_02371b7852","太棒啦！解锁了彩虹暖围巾！":"zd_629c8e50fc","穿上珍珠小项链啦！真好看！":"zd_1ef6f6d236","太棒啦！解锁了珍珠小项链！":"zd_6e64666af9","穿上草莓小围兜啦！真好看！":"zd_03509067e5","太棒啦！解锁了草莓小围兜！":"zd_c5e41ff80e","穿上星星小披风啦！真好看！":"zd_4b5d0b2094","太棒啦！解锁了星星小披风！":"zd_91fcc875d9","穿上可爱圆眼镜啦！真好看！":"zd_88abf470f0","太棒啦！解锁了可爱圆眼镜！":"zd_9980482e3c","穿上酷酷小墨镜啦！真好看！":"zd_4947f09c75","太棒啦！解锁了酷酷小墨镜！":"zd_90d2acb2db","穿上粉红爱心镜啦！真好看！":"zd_bf8245814c","太棒啦！解锁了粉红爱心镜！":"zd_5d485570cd","穿上闪亮星星镜啦！真好看！":"zd_748c49188d","太棒啦！解锁了闪亮星星镜！":"zd_d443f84aef","穿上小雏菊花镜啦！真好看！":"zd_fd83f6fabf","太棒啦！解锁了小雏菊花镜！":"zd_ad06ca8e35","穿上舞会闪亮眼罩啦！真好看！":"zd_c7a363ae2c","太棒啦！解锁了舞会闪亮眼罩！":"zd_69defc90e6","穿上草莓条纹袜啦！真好看！":"zd_f5bc62cba9","太棒啦！解锁了草莓条纹袜！":"zd_4f83a80dbd","穿上佩奇黄雨靴啦！真好看！":"zd_9169686ac7","太棒啦！解锁了佩奇黄雨靴！":"zd_e3898c5f26","穿上粉色公主鞋啦！真好看！":"zd_8b563f6ed6","太棒啦！解锁了粉色公主鞋！":"zd_22d156ba36","穿上彩虹运动鞋啦！真好看！":"zd_fdf58892b5","太棒啦！解锁了彩虹运动鞋！":"zd_6b40306c26","穿上绒绒兔拖鞋啦！真好看！":"zd_337a089d2f","太棒啦！解锁了绒绒兔拖鞋！":"zd_62f8f07fe1","穿上闪亮轮滑鞋啦！真好看！":"zd_4395b12fe2","太棒啦！解锁了闪亮轮滑鞋！":"zd_5bd48082f0","穿上小蜜蜂透明翅啦！真好看！":"zd_004647528d","太棒啦！解锁了小蜜蜂透明翅！":"zd_4a18a56c37","穿上粉蓝蝴蝶翅啦！真好看！":"zd_ce4c0357d8","太棒啦！解锁了粉蓝蝴蝶翅！":"zd_3ff31d1a77","穿上软绵天使羽翅啦！真好看！":"zd_24158dfbe3","太棒啦！解锁了软绵天使羽翅！":"zd_159c99d9e3","穿上彩虹七彩翅啦！真好看！":"zd_c3521808e5","太棒啦！解锁了彩虹七彩翅！":"zd_e73e76a29c","穿上闪亮精灵花翅啦！真好看！":"zd_8f149fd516","太棒啦！解锁了闪亮精灵花翅！":"zd_496fcc3236","穿上可爱小龙翼啦！真好看！":"zd_964c7739a1","太棒啦！解锁了可爱小龙翼！":"zd_7f343a5224","穿上彩虹棒棒糖啦！真好看！":"zd_0bc3daa456","太棒啦！解锁了彩虹棒棒糖！":"zd_dfc69789bb","穿上粉红爱心气球啦！真好看！":"zd_1c31f53b2b","太棒啦！解锁了粉红爱心气球！":"zd_548fa8c09f","穿上草莓小花伞啦！真好看！":"zd_2adae9c3c5","太棒啦！解锁了草莓小花伞！":"zd_fb42ef0054","穿上双球冰淇淋啦！真好看！":"zd_28c64a212a","太棒啦！解锁了双球冰淇淋！":"zd_f592801e4b","穿上星光魔法棒啦！真好看！":"zd_e4d31c8494","太棒啦！解锁了星光魔法棒！":"zd_327a947d60","穿上迷你小吉他啦！真好看！":"zd_0615063294","太棒啦！解锁了迷你小吉他！":"zd_e8a2df5361"};
+  const EXACT_ZH_BEDTIME = {"快乐小鸡困啦，要睡觉咯。今天玩得真棒，让眼睛和小鸡一起休息一下吧，晚安哟！":"zb_07226e4d5f","快乐小鸡困啦，要睡觉咯，晚安哟！":"zb_8fa42c4d8b","有小恐龙陪着，好安心呀！现在抓住被角往上拉，帮小鸡盖好被子吧！":"zb_6e95861858","有泰迪小熊陪着，好安心呀！现在抓住被角往上拉，帮小鸡盖好被子吧！":"zb_b20885e371","有软软小兔陪着，好安心呀！现在抓住被角往上拉，帮小鸡盖好被子吧！":"zb_afd5342816","啊～暖暖的小被子真舒服！最后往下拉一下灯绳关灯吧！":"zb_592ff084cf","刷完牙盖好被子关上灯，晚安好梦哟！":"zb_6912d9a64d"};
+  const EXACT_EN = {"Happy Mrs. Chicken is sleepy. Good night!":"en_adf2553f9c","Good morning! Happy Chicken is awake!":"en_fe1af88cba","So cozy with Little Dino! Pull the starry blanket up!":"en_d1f913f19a","So cozy with Teddy Bear! Pull the starry blanket up!":"en_dbf4ca6aae","So cozy with Fluffy Bunny! Pull the starry blanket up!":"en_20c10f92d0","Yawn～So warm and cozy! Pull the star cord down to turn off the light!":"en_b88bc370e6","Sparkling teeth, cozy blanket, lights out — sweet dreams!":"en_566f59b707","Tap anywhere on the grass to lay an egg!":"en_5285e599c1","Hello Mr. Sun!":"en_db40e54e78","It is raining! The muddy puddle is getting bigger!":"en_cc25b04b6d","The rain stopped! Look at the beautiful rainbow!":"en_3d1294b3f4","Sunny day! Mr. Sun is smiling!":"en_acc2e1ef74","Splash! Jumping in muddy puddles!":"en_500c14be40","Five stars! Happy Mrs. Chicken party!":"en_49689bed4a","Great job! You got it right!":"en_582ef7aacd","Cluck cluck! Egg laid!":"en_159420f82a","Cluck cluck! Happy Mrs. Chicken laid an egg!":"en_b855b42449","Haha! Splashing in the big muddy puddle!":"en_3c3c7822ba","Wheee! Down the rainbow slide!":"en_03dc170532","Whoa! Bouncing super high on the trampoline!":"en_6067443f7b","Hatch a chick on the grass first to ride the slide!":"en_ed39486d72","Hatch a chick on the grass first to jump on the trampoline!":"en_dba024466a","Hatch a chick on the grass first to jump in the puddle!":"en_ae2233f985","Toy hammer ready! Tap the rainbow golden egg to crack it open!":"en_b5afc474d0","Tap the glowing rainbow golden egg, or tap again to put the hammer down!":"en_08cdd9d928","This rainbow golden egg is super hard! Grab or tap the toy hammer to crack it open!":"en_a3caa7a7fb","Wait for a sparkling rainbow golden egg, then crack it open with the toy hammer!":"en_632ca57bda","Hammer put away! Tap anywhere on the grass to lay an egg!":"en_63b137d162","Drop the hammer onto a rainbow golden egg, or tap then tap the egg!":"en_cec92dea46","Wow! A rainbow golden egg! Crack it open with the toy hammer!":"en_155cbde96a","All tidy! Tap anywhere on the grass!":"en_17e473daec","Wow, 15! Let us start a fresh meadow!":"en_c5910d7653","Pick a yummy bubble bath bottle to pour in!":"en_83fd086d6e","Yum! Strawberry pink bubbles! Grab the sponge and scrub the mud!":"en_c3dfc2a04c","Yay! Lemon yellow bubbles! Grab the sponge and scrub the mud!":"en_93f5c95dcf","Ooh! Blueberry blue bubbles! Grab the sponge and scrub the mud!":"en_68a68d6344","Covered in yummy bubbles! Grab the showerhead to rinse clean!":"en_bd0ff90cf4","Shake shake! Now grab the warm hairdryer to fluff dry!":"en_f57627b5c3","Squeaky clean and fluffy! What a great helper!":"en_b1c4481711","Pick a yummy toothpaste flavor and squeeze it onto the toothbrush!":"en_367fb139be","Toothpaste ready! Open wide and brush away the sugar bugs!":"en_ed713149df","All sugar bugs are gone! Drag the water cup to rinse clean!":"en_f9910c1530","Sparkling clean teeth! Pick a bedtime buddy to cuddle!":"en_c8bca306d4","Free play! Tap any rainbow chick to make music!":"en_c55d4e947a","Line up the eggs from smallest to biggest!":"en_5b083979ba","Line up the chicks from smallest to biggest!":"en_aa8215b383","Order the eggs from smallest to biggest!":"en_713404064c","Order the chicks from smallest to biggest!":"en_c9f67dafa6","So neat! Smallest to biggest, one two three!":"en_ebd2ac6a89","So neat! Smallest to biggest, one two three four!":"en_b7fc460a32","Look closely, there is a smaller one!":"en_66f912a94d","Great! Now find the next smallest one!":"en_e122758c25","No worries, let us count the chicks on the grass together!":"en_935be65103","Super detective! You matched every clue!":"en_92d78426e4","Right color and shape, check the size!":"en_03ff75b734","Check the clues again!":"en_6393cee720","Look closely at the dashed outline!":"en_f4c8415c82","Which egg has a different shape?":"en_9a8859caa5","Cluck cluck! Happy Chicken looks so pretty today!":"en_540a688ea1","Ta-da! A brand new outfit for Happy Chicken!":"en_8ff7069f84","All off! Fresh and clean Happy Chicken!":"en_faedcafea4","Tap the rainbow golden egg on the grass to meet it!":"en_6c3dc5c752","Took it off! Try another cute outfit!":"en_07ba23ce0a","Collect more stars to unlock this pretty outfit!":"en_679416e99c","Roar! A cute green baby dinosaur!":"en_3694c7bb6f","Quack quack! A playful little duckling!":"en_e15f59e721","Hop hop! A sweet strawberry bunny!":"en_74fabc8b97","Warm hugs! A cuddly honey bear!":"en_c21f5bbec6","Meow! An adorable spotted kitty!":"en_ffc12dc32c","Yum bamboo! A roly-poly bamboo panda!":"en_846f594d6f","Abracadabra! A starry wizard chick!":"en_f0fcc6dfc7","Look! A dazzling rainbow wing chick!":"en_87ffe15533","Sparkle! A magical unicorn chick!":"en_cc17b168aa","Flutter flutter! A lovely flower fairy!":"en_5b3968af40","Twirl around! A royal princess chick!":"en_23e8b045c3","Bubble pop! A sparkling mermaid chick!":"en_80d6f531a2","So sweet! A strawberry cream chick!":"en_13be575c54","Yummy! A sweet cupcake chick!":"en_8abba089a4","Sprinkles! A glazed donut chick!":"en_5edc3976e8","Cool treat! An ice cream chick!":"en_5d6bfcb9fa","Peachy keen! A rosy pink peach chick!":"en_8d70c9d76f","Wiggle jiggle! A caramel pudding chick!":"en_fbcfd46e53","Blast off! A brave astro chick!":"en_63e1ccdcc4","Check-up time! A caring doctor chick!":"en_9390a034ca","Bon appetit! A master chef chick!":"en_13338a3de8","Hero to the rescue! A brave firefighter chick!":"en_64057aa9a0","Ahoy matey! A treasure captain chick!":"en_30b53e3d97","Paint a rainbow! A creative painter chick!":"en_59ed0ea162","Cluck cluck! Egg number 1! It will hatch by itself soon!":"en_65b86b4d7a","Pop! Baby chick number 1!":"en_1dc72c867a","Chick number 1! Cheep cheep!":"en_b39463dbc6","Hooray! 1 cute friends on the meadow!":"en_572c26bda4","Cluck cluck! Egg number 2! It will hatch by itself soon!":"en_9fbc675d6d","Pop! Baby chick number 2!":"en_a94dd92563","Chick number 2! Cheep cheep!":"en_f103926316","Hooray! 2 cute friends on the meadow!":"en_ef3a5d8c5b","Cluck cluck! Egg number 3! It will hatch by itself soon!":"en_2c77696d66","Pop! Baby chick number 3!":"en_f4bbfbf9f4","Chick number 3! Cheep cheep!":"en_53b1a9341d","Hooray! 3 cute friends on the meadow!":"en_26219f29c7","Cluck cluck! Egg number 4! It will hatch by itself soon!":"en_43f209a137","Pop! Baby chick number 4!":"en_e302cdc4d1","Chick number 4! Cheep cheep!":"en_9428c38999","Hooray! 4 cute friends on the meadow!":"en_27beca7c48","Yay! 5 eggs! They will hatch by themselves soon!":"en_7a7f6014f4","Pop! Baby chick number 5!":"en_aa4e08f66f","Chick number 5! Cheep cheep!":"en_28cb90b023","Hooray! 5 cute friends on the meadow!":"en_497f6ad4f7","Cluck cluck! Egg number 6! It will hatch by itself soon!":"en_2d884b1284","Pop! Baby chick number 6!":"en_9020f6bd0f","Chick number 6! Cheep cheep!":"en_cd8eb4bb6a","Hooray! 6 cute friends on the meadow!":"en_134fde984e","Cluck cluck! Egg number 7! It will hatch by itself soon!":"en_a2b6db1076","Pop! Baby chick number 7!":"en_98772fc676","Chick number 7! Cheep cheep!":"en_bfc77c483d","Hooray! 7 cute friends on the meadow!":"en_e2ab39368c","Cluck cluck! Egg number 8! It will hatch by itself soon!":"en_c5341d2341","Pop! Baby chick number 8!":"en_249f56a49f","Chick number 8! Cheep cheep!":"en_08330ff762","Hooray! 8 cute friends on the meadow!":"en_a2d8642021","Cluck cluck! Egg number 9! It will hatch by itself soon!":"en_b14d06383e","Pop! Baby chick number 9!":"en_b3759c6d38","Chick number 9! Cheep cheep!":"en_59371f194a","Hooray! 9 cute friends on the meadow!":"en_fbb2771e15","Yay! 10 eggs! They will hatch by themselves soon!":"en_98e5e1a4a5","Pop! Baby chick number 10!":"en_cd1b438147","Chick number 10! Cheep cheep!":"en_2a1f918abc","Hooray! 10 cute friends on the meadow!":"en_dbaffcf078","Cluck cluck! Egg number 11! It will hatch by itself soon!":"en_54f2dbd054","Pop! Baby chick number 11!":"en_ba45d8197f","Chick number 11! Cheep cheep!":"en_db0c560f43","Hooray! 11 cute friends on the meadow!":"en_95efde2b1a","Cluck cluck! Egg number 12! It will hatch by itself soon!":"en_d2e80623a4","Pop! Baby chick number 12!":"en_0cec672d60","Chick number 12! Cheep cheep!":"en_1dd860749a","Hooray! 12 cute friends on the meadow!":"en_bdaf419bd4","Cluck cluck! Egg number 13! It will hatch by itself soon!":"en_2a6808a25a","Pop! Baby chick number 13!":"en_01053481cd","Chick number 13! Cheep cheep!":"en_9463a2db5a","Hooray! 13 cute friends on the meadow!":"en_b827dce794","Cluck cluck! Egg number 14! It will hatch by itself soon!":"en_b391a9576a","Pop! Baby chick number 14!":"en_8f99dd170f","Chick number 14! Cheep cheep!":"en_f559088594","Hooray! 14 cute friends on the meadow!":"en_15bd6faa1f","Yay! 15 eggs! They will hatch by themselves soon!":"en_db226ff7b6","Pop! Baby chick number 15!":"en_60a2fe3675","Chick number 15! Cheep cheep!":"en_71d674b08f","Hooray! 15 cute friends on the meadow!":"en_3947088e38","Find the Red nest!":"en_31758bf5bf","Put the Red egg in the Red nest!":"en_1b34e62a34","Great job! Red!":"en_de0d7252d4","Find the Yellow nest!":"en_045a0c0d03","Put the Yellow egg in the Yellow nest!":"en_1f86698872","Great job! Yellow!":"en_5c99a71d16","Find the Blue nest!":"en_b730437aa9","Put the Blue egg in the Blue nest!":"en_ebb91e0994","Great job! Blue!":"en_7a9cf0b115","Find the Green nest!":"en_3a945bd05e","Put the Green egg in the Green nest!":"en_141ac9574f","Great job! Green!":"en_771161a0da","Find the Pink nest!":"en_f795915948","Put the Pink egg in the Pink nest!":"en_71106f2ab8","Great job! Pink!":"en_54b245d813","Find the Purple nest!":"en_83e748265f","Put the Purple egg in the Purple nest!":"en_065ef32efb","Great job! Purple!":"en_b39c3a1b3f","Red! Pick one more color!":"en_e3b4b61651","Yellow! Pick one more color!":"en_cdb7a38073","Blue! Pick one more color!":"en_e1ce180e24","White! Pick one more color!":"en_b9995ca0a0","Red plus what color makes Orange?":"en_b0b4233b2d","Yellow plus what color makes Orange?":"en_b0f09e5a67","Pick 2 colors to mix Orange!":"en_6918635484","Magic! Red and Yellow make Orange!":"en_4bd6c78701","Magic! Yellow and Red make Orange!":"en_b43d42dfea","Yellow plus what color makes Green?":"en_fb3b150c16","Blue plus what color makes Green?":"en_e8d83073e7","Pick 2 colors to mix Green!":"en_251c8883d1","Magic! Yellow and Blue make Green!":"en_b3d42cb766","Magic! Blue and Yellow make Green!":"en_578eef2431","Red plus what color makes Purple?":"en_b35875285d","Blue plus what color makes Purple?":"en_821ee6d302","Pick 2 colors to mix Purple!":"en_195c8f53e4","Magic! Red and Blue make Purple!":"en_4d0f9412dc","Magic! Blue and Red make Purple!":"en_96288e2b65","Red plus what color makes Pink?":"en_42a096a9f1","White plus what color makes Pink?":"en_cb75de48bc","Pick 2 colors to mix Pink!":"en_bd43397838","Magic! Red and White make Pink!":"en_a824a95c65","Magic! White and Red make Pink!":"en_ef5edfb70c","Blue plus what color makes Sky Blue?":"en_d120de2ae7","White plus what color makes Sky Blue?":"en_3c84679ae3","Pick 2 colors to mix Sky Blue!":"en_44ecadadd4","Magic! Blue and White make Sky Blue!":"en_e1de32be43","Magic! White and Blue make Sky Blue!":"en_ab5e6bed0b","Awesome! The missing color is Red!":"en_99efcba213","Awesome! The missing color is Yellow!":"en_4b74de3d48","Awesome! The missing color is Blue!":"en_ebc753b582","Awesome! The missing color is Green!":"en_304203895b","Awesome! The missing color is Pink!":"en_909fb096cd","Awesome! The missing color is Purple!":"en_8403cf7310","Awesome! The missing color is Orange!":"en_f06e889c7c","Feed the chick 1 corn!":"en_1f48f8b571","Baby chick wants 1 corn!":"en_1374c8841e","Yum! Exactly 1 corn!":"en_1bc9d1f691","1":"en_c4ca4238a0","Feed the chick 2 corn!":"en_b902fc5ec5","Baby chick wants 2 corn!":"en_ade40db333","Yum! Exactly 2 corn!":"en_0dae63ec40","2":"en_c81e728d9d","Feed the chick 3 corn!":"en_24bbc59996","Baby chick wants 3 corn!":"en_dde019feee","Yum! Exactly 3 corn!":"en_135b2ab6f5","3":"en_eccbc87e4b","Feed the chick 4 corn!":"en_ec09c097c6","Baby chick wants 4 corn!":"en_2bfa11554e","Yum! Exactly 4 corn!":"en_44e76e38c0","4":"en_a87ff679a2","Feed the chick 5 corn!":"en_9381b6ccb9","Baby chick wants 5 corn!":"en_f61cb1d916","Yum! Exactly 5 corn!":"en_f26b1cf79d","5":"en_e4da3b7fbb","Feed the chick 6 corn!":"en_12f1c122ff","Baby chick wants 6 corn!":"en_297cce415f","Yum! Exactly 6 corn!":"en_a23cd67269","6":"en_1679091c5a","Feed the chick 7 corn!":"en_99d149d64c","Baby chick wants 7 corn!":"en_129c4f5d88","Yum! Exactly 7 corn!":"en_f2e82af0a7","7":"en_8f14e45fce","Feed the chick 8 corn!":"en_35b9d5aed0","Baby chick wants 8 corn!":"en_1dd7be6f11","Yum! Exactly 8 corn!":"en_22f9213576","8":"en_c9f0f895fb","Put the Small egg in the Small nest!":"en_370aae6528","Perfect! The Small egg fits the Small nest!":"en_0567772c63","That Small egg is smaller! Find a smaller nest!":"en_00116cf75b","Put the Medium egg in the Medium nest!":"en_4a66ce79b5","Perfect! The Medium egg fits the Medium nest!":"en_2039bf62cb","That Medium egg is smaller! Find a smaller nest!":"en_b60d034eaa","That Medium egg is too big for the Small nest! Try a bigger nest!":"en_8d457cf15a","Put the Big egg in the Big nest!":"en_24ca97111f","Perfect! The Big egg fits the Big nest!":"en_be973dc27e","That Big egg is smaller! Find a smaller nest!":"en_dd6dc4173a","That Big egg is too big for the Small nest! Try a bigger nest!":"en_4450f34427","That Big egg is too big for the Medium nest! Try a bigger nest!":"en_53582f4f02","1 chicks plus 1 more — how many now?":"en_aa0699ae68","Correct! 1 plus 1 equals 2!":"en_793eda0153","1 chicks plus 2 more — how many now?":"en_b2f0aa147e","Correct! 1 plus 2 equals 3!":"en_f7ff296c61","1 chicks plus 3 more — how many now?":"en_41fa23e38e","Correct! 1 plus 3 equals 4!":"en_22b5a8ce2b","1 chicks plus 4 more — how many now?":"en_28fac5b1b4","Correct! 1 plus 4 equals 5!":"en_58480eec20","2 chicks plus 1 more — how many now?":"en_575081b66f","Correct! 2 plus 1 equals 3!":"en_640993cfd9","2 chicks plus 2 more — how many now?":"en_51202cce00","Correct! 2 plus 2 equals 4!":"en_44046fc660","2 chicks plus 3 more — how many now?":"en_4767009c59","Correct! 2 plus 3 equals 5!":"en_58e728fa8b","2 chicks plus 4 more — how many now?":"en_0bbb6c9744","Correct! 2 plus 4 equals 6!":"en_4738e396b4","3 chicks plus 1 more — how many now?":"en_3c660f460a","Correct! 3 plus 1 equals 4!":"en_037c0bcfa2","3 chicks plus 2 more — how many now?":"en_c5d3042dc4","Correct! 3 plus 2 equals 5!":"en_af71194b42","3 chicks plus 3 more — how many now?":"en_81f57ea90d","Correct! 3 plus 3 equals 6!":"en_c483e089c1","3 chicks plus 4 more — how many now?":"en_c0f145ad9f","Correct! 3 plus 4 equals 7!":"en_6c9fe17fb3","4 chicks plus 1 more — how many now?":"en_0eb30bde97","Correct! 4 plus 1 equals 5!":"en_190c98567c","4 chicks plus 2 more — how many now?":"en_ed8f63fb2a","Correct! 4 plus 2 equals 6!":"en_ed0f92960a","4 chicks plus 3 more — how many now?":"en_5247011c92","Correct! 4 plus 3 equals 7!":"en_8a9a9c4400","4 chicks plus 4 more — how many now?":"en_f8585b3590","Correct! 4 plus 4 equals 8!":"en_6aa1e00741","5 chicks plus 1 more — how many now?":"en_d970857d5e","Correct! 5 plus 1 equals 6!":"en_5de4dc9783","5 chicks plus 2 more — how many now?":"en_8d9ec504cb","Correct! 5 plus 2 equals 7!":"en_1ef31886e6","5 chicks plus 3 more — how many now?":"en_067ee4ab5e","Correct! 5 plus 3 equals 8!":"en_da7fdfaad5","3 chicks, 1 go home — how many left?":"en_f828a3eaa0","Correct! 3 minus 1 equals 2!":"en_419470c24f","3 chicks, 2 go home — how many left?":"en_d69ef0daa3","Correct! 3 minus 2 equals 1!":"en_6bb3157864","4 chicks, 1 go home — how many left?":"en_229b2aa3e8","Correct! 4 minus 1 equals 3!":"en_6ccc01dc7f","4 chicks, 2 go home — how many left?":"en_84c49e0c54","Correct! 4 minus 2 equals 2!":"en_4cbf74a288","4 chicks, 3 go home — how many left?":"en_3fdf8fda3c","Correct! 4 minus 3 equals 1!":"en_e249e8eac8","5 chicks, 1 go home — how many left?":"en_aca4e134a6","Correct! 5 minus 1 equals 4!":"en_6ee2c5625b","5 chicks, 2 go home — how many left?":"en_6ba5b9bf00","Correct! 5 minus 2 equals 3!":"en_4fd77206b2","5 chicks, 3 go home — how many left?":"en_4dea1a5aa9","Correct! 5 minus 3 equals 2!":"en_e31907526b","5 chicks, 4 go home — how many left?":"en_7f5e47e862","Correct! 5 minus 4 equals 1!":"en_7482039e10","6 chicks, 1 go home — how many left?":"en_a0cc15e3f2","Correct! 6 minus 1 equals 5!":"en_eb5bf2b0eb","6 chicks, 2 go home — how many left?":"en_fc7e855815","Correct! 6 minus 2 equals 4!":"en_2e8fda94c7","6 chicks, 3 go home — how many left?":"en_3527a32ee7","Correct! 6 minus 3 equals 3!":"en_e4991d0b3c","6 chicks, 4 go home — how many left?":"en_514f86d482","Correct! 6 minus 4 equals 2!":"en_70ebd2181c","7 chicks, 1 go home — how many left?":"en_020d8bcaa4","Correct! 7 minus 1 equals 6!":"en_9e46544ea8","7 chicks, 2 go home — how many left?":"en_b3cbeb4716","Correct! 7 minus 2 equals 5!":"en_f23385926b","7 chicks, 3 go home — how many left?":"en_08613aaf54","Correct! 7 minus 3 equals 4!":"en_c52f4946e5","7 chicks, 4 go home — how many left?":"en_9b7c514731","Correct! 7 minus 4 equals 3!":"en_a1c2928e61","8 chicks, 1 go home — how many left?":"en_83ad329261","Correct! 8 minus 1 equals 7!":"en_bb3b92a2bd","8 chicks, 2 go home — how many left?":"en_eb09628563","Correct! 8 minus 2 equals 6!":"en_76ad86fbcb","8 chicks, 3 go home — how many left?":"en_8c641541b4","Correct! 8 minus 3 equals 5!":"en_00aad71fd8","8 chicks, 4 go home — how many left?":"en_ec12032d77","Correct! 8 minus 4 equals 4!":"en_d940d49a18","Can you find the Circle?":"en_e04b584d9d","Find the matching Circle!":"en_ca3a99be19","Yes! It is a Circle!":"en_9c8e31b76f","Can you find the Triangle?":"en_3e017e3e51","Find the matching Triangle!":"en_74014e0c4e","Yes! It is a Triangle!":"en_5b13e464af","Can you find the Square?":"en_b85efc2d8c","Find the matching Square!":"en_e729eadb96","Yes! It is a Square!":"en_5829ec2519","Can you find the Star?":"en_73f04a51d1","Find the matching Star!":"en_f644e2f16f","Yes! It is a Star!":"en_4d48b54ef3","Can you find the Heart?":"en_5b7722b109","Find the matching Heart!":"en_bcec2e25c7","Yes! It is a Heart!":"en_0ef4790dc9","Nice Circle! Keep building!":"en_0139d0b084","Three eggs have a Circle. Ignore color and find the different shape!":"en_a33f901b71","Nice Triangle! Keep building!":"en_dc2755037f","Three eggs have a Triangle. Ignore color and find the different shape!":"en_0653b9d4a8","Nice Square! Keep building!":"en_6cc56cecca","Three eggs have a Square. Ignore color and find the different shape!":"en_495d91f3f5","Nice Rectangle! Keep building!":"en_d2ec4eff6d","Three eggs have a Rectangle. Ignore color and find the different shape!":"en_35db5aa4d0","Nice Diamond! Keep building!":"en_7d6704d910","Three eggs have a Diamond. Ignore color and find the different shape!":"en_5789b2abd1","Nice Semicircle! Keep building!":"en_a2326c0efa","Three eggs have a Semicircle. Ignore color and find the different shape!":"en_34b2a986ab","Nice Star! Keep building!":"en_1edc40a389","Three eggs have a Star. Ignore color and find the different shape!":"en_da90ecd111","Nice Heart! Keep building!":"en_626bd50f50","Three eggs have a Heart. Ignore color and find the different shape!":"en_9078b8c88e","Build the House using the shapes below!":"en_7663297e73","Hooray! You built the House!":"en_4f96bffe22","Build the Ice Cream using the shapes below!":"en_fbda639d04","Hooray! You built the Ice Cream!":"en_7079376345","Build the Rocket using the shapes below!":"en_e8701460dc","Hooray! You built the Rocket!":"en_fbc7427750","Build the Sailboat using the shapes below!":"en_d68d845a0a","Hooray! You built the Sailboat!":"en_6ce922e0a9","Build the Tree using the shapes below!":"en_750c6f76bf","Hooray! You built the Tree!":"en_a8ac36308e","Build the Kite using the shapes below!":"en_75bd24173d","Hooray! You built the Kite!":"en_ab3e57115c","Follow the glowing star to play Twinkle Star!":"en_9328576d25","Now it's your turn to play Twinkle Star!":"en_a50fa844ac","Bravo! You played the whole Twinkle Star song!":"en_5b4cd863ef","Follow the glowing star to play Two Tigers!":"en_8c0bb821c5","Now it's your turn to play Two Tigers!":"en_d3f4f66a6c","Bravo! You played the whole Two Tigers song!":"en_bf4d166f89","Follow the glowing star to play Little Painter!":"en_a7a9748d64","Now it's your turn to play Little Painter!":"en_b835d10cd5","Bravo! You played the whole Little Painter song!":"en_3ffcb153ab","Wearing Flower Crown!":"en_e3c27ad988","Awesome! Unlocked Flower Crown!":"en_fed5900e32","Wearing Gold Crown!":"en_3acbc23257","Awesome! Unlocked Gold Crown!":"en_1e05008ac3","Wearing Bunny Ears!":"en_1117cbb2c5","Awesome! Unlocked Bunny Ears!":"en_d7c5b2ff56","Wearing Berry Beret!":"en_87b92da184","Awesome! Unlocked Berry Beret!":"en_d8996ae777","Wearing Unicorn Horn!":"en_b8680679f5","Awesome! Unlocked Unicorn Horn!":"en_6691908f36","Wearing Starry Hat!":"en_e0364646f5","Awesome! Unlocked Starry Hat!":"en_46b480ef2a","Wearing Daisy Apron!":"en_d03da2eaf9","Awesome! Unlocked Daisy Apron!":"en_11b48f9860","Wearing Denim Overalls!":"en_060f6891c2","Awesome! Unlocked Denim Overalls!":"en_1491cef1d4","Wearing Duck Raincoat!":"en_17faaf222e","Awesome! Unlocked Duck Raincoat!":"en_23e983c41d","Wearing Princess Tutu!":"en_a4d7bca913","Awesome! Unlocked Princess Tutu!":"en_a9fbda291e","Wearing Starry Ballet!":"en_9e0a503337","Awesome! Unlocked Starry Ballet!":"en_eaabac0eee","Wearing Mermaid Dress!":"en_8111be29f0","Awesome! Unlocked Mermaid Dress!":"en_34e4bcff02","Wearing Pink Bow!":"en_6091d69ee2","Awesome! Unlocked Pink Bow!":"en_dcbbde53b9","Wearing Gold Bell!":"en_19dcc996bd","Awesome! Unlocked Gold Bell!":"en_8c7d437c4b","Wearing Rainbow Scarf!":"en_06ee8fdda5","Awesome! Unlocked Rainbow Scarf!":"en_2db150c53a","Wearing Pearl Necklace!":"en_93de440f55","Awesome! Unlocked Pearl Necklace!":"en_80b2bde164","Wearing Berry Bib!":"en_46b8ceaa74","Awesome! Unlocked Berry Bib!":"en_15cb3dadb9","Wearing Star Cape!":"en_0ce20d7188","Awesome! Unlocked Star Cape!":"en_8a6b33f202","Wearing Round Glasses!":"en_8ee17c8ea2","Awesome! Unlocked Round Glasses!":"en_a0059bae2b","Wearing Cool Shades!":"en_a18e742fa1","Awesome! Unlocked Cool Shades!":"en_b371ea5dc4","Wearing Heart Shades!":"en_62debbc68f","Awesome! Unlocked Heart Shades!":"en_d50730d6f3","Wearing Star Shades!":"en_41156bdecf","Awesome! Unlocked Star Shades!":"en_56c72aaec3","Wearing Daisy Shades!":"en_1516a92dc9","Awesome! Unlocked Daisy Shades!":"en_e3a09371f4","Wearing Party Mask!":"en_ed17dbf3a8","Awesome! Unlocked Party Mask!":"en_6175556442","Wearing Stripe Socks!":"en_1997ac8f5b","Awesome! Unlocked Stripe Socks!":"en_c0df0198e6","Wearing Yellow Boots!":"en_6ac35f8f8c","Awesome! Unlocked Yellow Boots!":"en_10b8482a19","Wearing Pink Shoes!":"en_8eae62ab38","Awesome! Unlocked Pink Shoes!":"en_c0923d72e7","Wearing Rainbow Sneakers!":"en_36c45c98ad","Awesome! Unlocked Rainbow Sneakers!":"en_ee1188ee1a","Wearing Bunny Slippers!":"en_f1b6486365","Awesome! Unlocked Bunny Slippers!":"en_3fe3284ade","Wearing Roller Skates!":"en_be23999279","Awesome! Unlocked Roller Skates!":"en_309a219fc4","Wearing Bee Wings!":"en_d91f79f84f","Awesome! Unlocked Bee Wings!":"en_d703acc742","Wearing Butterfly Wings!":"en_b6bd8c67bb","Awesome! Unlocked Butterfly Wings!":"en_336dba7c51","Wearing Angel Wings!":"en_ad1af28c24","Awesome! Unlocked Angel Wings!":"en_763acf8bce","Wearing Rainbow Wings!":"en_ac92fb70c2","Awesome! Unlocked Rainbow Wings!":"en_d53e35f57c","Wearing Fairy Wings!":"en_2a61f0d931","Awesome! Unlocked Fairy Wings!":"en_e959ef8cc8","Wearing Dragon Wings!":"en_8cf0c1d428","Awesome! Unlocked Dragon Wings!":"en_fe642867d6","Wearing Lollipop!":"en_3c696c7d6a","Awesome! Unlocked Lollipop!":"en_bf058a3a65","Wearing Heart Balloon!":"en_f5fb812f45","Awesome! Unlocked Heart Balloon!":"en_9315c2b831","Wearing Berry Umbrella!":"en_492042e560","Awesome! Unlocked Berry Umbrella!":"en_1eca1c895f","Wearing Ice Cream!":"en_25fe86e827","Awesome! Unlocked Ice Cream!":"en_c8b7308e17","Wearing Magic Wand!":"en_238cb9e997","Awesome! Unlocked Magic Wand!":"en_5f738102e5","Wearing Mini Guitar!":"en_705e2d80ab","Awesome! Unlocked Mini Guitar!":"en_bcacdee518"};
+
+  function getBaseUrl() {
+    return window.__HMC_SINGLE_FILE__ ? '../audio/v/' : 'audio/v/';
+  }
+
+  function toUrl(id) {
+    return id ? (getBaseUrl() + id + '.mp3') : null;
+  }
+
+  function toUrls(ids) {
+    const out = [];
+    for (let i = 0; i < ids.length; i++) {
+      if (!ids[i]) return null;
+      out.push(getBaseUrl() + ids[i] + '.mp3');
+    }
+    return out.length ? out : null;
+  }
+
+  function norm(text) {
+    if (HMC.audio && typeof HMC.audio.normalizeVoiceKey === 'function') {
+      return HMC.audio.normalizeVoiceKey(text);
+    }
+    return String(text || '').trim();
+  }
+
+  function resolveDynamicZh(key, voiceStyle) {
+    const D = EXACT_ZH_DAILY;
+    let m;
+
+    // 1. Color basic wrong: 这是红色 的窝哦，再找找黄色吧！
+    m = key.match(/^(这是[^，]+的窝哦，)(再找找[^！]+吧！)$/);
+    if (m && D[m[1]] && D[m[2]]) return toUrls([D[m[1]], D[m[2]]]);
+
+    // 2. Color mix wrong: 哇，X加Y变成了Z哦！我们要变出W，再试一次吧！
+    m = key.match(/^(哇，[^！]+哦！)(我们要变出[^！]+，再试一次吧！)$/);
+    if (m && D[m[1]] && D[m[2]]) return toUrls([D[m[1]], D[m[2]]]);
+
+    // 3. Color pattern prompt: 找规律：红、黄、红、黄、问号？问号该放什么颜色？
+    m = key.match(/^(找规律：|听规律哦：)([^？]+)？(问号该放什么颜色？)?$/);
+    if (m) {
+      const tokens = m[2].split('、').filter(Boolean);
+      const ids = [D[m[1]]];
+      for (let i = 0; i < tokens.length; i++) ids.push(D[tokens[i]]);
+      if (m[3]) ids.push(D[m[3]]);
+      const urls = toUrls(ids);
+      if (urls) return urls;
+    }
+
+    // 4. Color pattern wrong: 不是红色哦，再一起念一遍：红、黄...！
+    m = key.match(/^(不是[^，]+哦，)再一起念一遍：([^！]+)！$/);
+    if (m) {
+      const tokens = m[2].split('、').filter(Boolean);
+      const ids = [D[m[1]], D['再一起念一遍！']];
+      for (let i = 0; i < tokens.length; i++) ids.push(D[tokens[i]]);
+      const urls = toUrls(ids);
+      if (urls) return urls;
+    }
+
+    // 5. Shape basic wrong: 这是圆形哦，再找找三角形吧！
+    m = key.match(/^(这是[^，]+哦，)(再找找[^！]+吧！)$/);
+    if (m && D[m[1]] && D[m[2]]) return toUrls([D[m[1]], D[m[2]]]);
+
+    // 6. Shape clue prompt: 小侦探：找出大大的红色圆形蛋！ / 小侦探，找出红色的圆形蛋吧！
+    m = key.match(/^小侦探[：，]找出(大大的|小小的)?(红色|黄色|蓝色|绿色|粉色|紫色|橙色|天蓝色|白色)的?([^蛋]+蛋)吧?！?$/);
+    if (m) {
+      const ids = [D['小侦探，找出']];
+      if (m[1]) ids.push(D[m[1]]);
+      ids.push(D[m[2] + '的']);
+      ids.push(D[m[3] + '！']);
+      const urls = toUrls(ids);
+      if (urls) return urls;
+    }
+
+    // 7. Shape clue wrong diagnostic (color mismatch)
+    m = key.match(/^(形状是[^，]+没错，)(但颜色是[^，]+哦，)(我们要找[^！]+的！)$/);
+    if (m && D[m[1]] && D[m[2]] && D[m[3]]) return toUrls([D[m[1]], D[m[2]], D[m[3]]]);
+
+    // 8. Shape clue wrong diagnostic (shape mismatch)
+    m = key.match(/^(颜色对了，可是上面的形状是[^，]+哦，)(我们要找[^！]+！)$/);
+    if (m && D[m[1]] && D[m[2]]) return toUrls([D[m[1]], D[m[2]]]);
+
+    // 9. Shape clue generic wrong
+    if (/^这个是.+再核对一下线索吧！$/.test(key) && D['再核对一下线索吧！']) {
+      return [toUrl(D['再核对一下线索吧！'])];
+    }
+
+    // 10. Shape blueprint partial build: 拼上三角形啦！还需要...
+    m = key.match(/^拼上([^啦]+)啦！还需要/);
+    if (m && D[`拼上${m[1]}啦！继续拼搭吧！`]) {
+      return [toUrl(D[`拼上${m[1]}啦！继续拼搭吧！`])];
+    }
+
+    // 11. Shape blueprint wrong: 图上虚线框里不需要...
+    if (/^图上虚线框里不需要/.test(key) && D['再看看图里的虚线形状哦！']) {
+      return [toUrl(D['再看看图里的虚线形状哦！'])];
+    }
+
+    // 12. Shape odd-one-out win: 太厉害啦！其他三个都是X，只有这个是Y！
+    m = key.match(/^(太厉害啦！其他三个都是[^，]+，)(只有这个是[^！]+！)$/);
+    if (m && D[m[1]] && D[m[2]]) return toUrls([D[m[1]], D[m[2]]]);
+
+    // 13. Wardrobe takeoff & locked universal
+    if (/^脱下.+啦！$/.test(key) && D['脱下啦，换件漂亮的试试吧！']) {
+      return [toUrl(D['脱下啦，换件漂亮的试试吧！'])];
+    }
+    if (/^再收集\d+颗星星就能解锁.+啦！$/.test(key) && D['多玩几关收集星星，就能解锁这件漂亮装扮啦！']) {
+      return [toUrl(D['多玩几关收集星星，就能解锁这件漂亮装扮啦！'])];
+    }
+
+    return null;
+  }
+
+  function resolveDynamicEn(key) {
+    const E = EXACT_EN;
+    if (/^Took off .+$/.test(key) && E['Took it off! Try another cute outfit!']) {
+      return [toUrl(E['Took it off! Try another cute outfit!'])];
+    }
+    if (/^Collect \d+ more stars to unlock .+$/.test(key) && E['Collect more stars to unlock this pretty outfit!']) {
+      return [toUrl(E['Collect more stars to unlock this pretty outfit!'])];
+    }
+    return null;
+  }
+
+  function resolve(text, lang, voiceStyle = 'daily') {
+    const key = norm(text);
+    if (!key) return null;
+
+    if (lang === 'en') {
+      const id = EXACT_EN[key];
+      if (id) return [toUrl(id)];
+      return resolveDynamicEn(key);
+    }
+
+    // Chinese lookup: honor bedtime style (XiaoxiaoNeural) first when requested
+    if (voiceStyle === 'bedtime' && EXACT_ZH_BEDTIME[key]) {
+      return [toUrl(EXACT_ZH_BEDTIME[key])];
+    }
+    if (EXACT_ZH_DAILY[key]) {
+      return [toUrl(EXACT_ZH_DAILY[key])];
+    }
+    if (EXACT_ZH_BEDTIME[key]) {
+      return [toUrl(EXACT_ZH_BEDTIME[key])];
+    }
+
+    return resolveDynamicZh(key, voiceStyle);
+  }
+
+  HMC.voicePack = {
+    resolve,
+    getStats: () => ({
+      dailyZh: Object.keys(EXACT_ZH_DAILY).length,
+      bedtimeZh: Object.keys(EXACT_ZH_BEDTIME).length,
+      en: Object.keys(EXACT_EN).length
+    })
   };
 })(window.HMC = window.HMC || {});
 
@@ -9945,6 +10477,8 @@ window.__HMC_SINGLE_FILE__ = true;
     }
   }
 
+  let partyTimer = null;
+
   function awardStar() {
     const state = HMC.state;
     const newTotal = (HMC.storage && HMC.storage.addStar)
@@ -9968,17 +10502,49 @@ window.__HMC_SINGLE_FILE__ = true;
       }, toastDelay);
     }
 
-    if (state.stars >= 5) {
-      setTimeout(() => {
-        const nick = (HMC.audio && HMC.audio.getNick) ? HMC.audio.getNick() : '宝贝';
+    const isParty = state.stars >= 5;
+    if (isParty) {
+      if (partyTimer) clearTimeout(partyTimer);
+      partyTimer = setTimeout(() => {
+        partyTimer = null;
+        const sleepOverlay = document.getElementById('sleepOverlay');
+        if (sleepOverlay && sleepOverlay.classList.contains('open')) return;
+
         HMC.audio.SFX.fanfare();
         burstConfetti(48);
-        spawnFloatingWord(`🎉 ${nick}小鸡大派对！`, (window.innerWidth || 390) / 2, (window.innerHeight || 844) * 0.36, '#FF8C00');
-        HMC.audio.playParentClip(
-          'party',
-          `${nick}集齐五颗星啦！快乐小鸡大派对！`,
-          'Five stars! Happy Mrs. Chicken party!'
-        );
+        spawnFloatingWord('🎉 小鸡大派对！', (window.innerWidth || 390) / 2, (window.innerHeight || 844) * 0.36, '#FF8C00');
+
+        const playPartyVoice = () => {
+          const sleepEl = document.getElementById('sleepOverlay');
+          if (sleepEl && sleepEl.classList.contains('open')) return;
+          HMC.audio.playParentClip(
+            'party',
+            '哇！集齐五颗星啦！快乐小鸡大派对！',
+            'Five stars! Happy Mrs. Chicken party!'
+          );
+        };
+
+        if (
+          HMC.audio &&
+          typeof HMC.audio.isSpeaking === 'function' &&
+          HMC.audio.isSpeaking() &&
+          typeof HMC.audio.getCurrentSpeechPromise === 'function'
+        ) {
+          const genBefore = typeof HMC.audio.getSpeechGen === 'function' ? HMC.audio.getSpeechGen() : -1;
+          const activeP = HMC.audio.getCurrentSpeechPromise();
+          let settled = false;
+          const finish = () => {
+            if (settled) return;
+            settled = true;
+            const curGen = typeof HMC.audio.getSpeechGen === 'function' ? HMC.audio.getSpeechGen() : -1;
+            if (curGen === genBefore) playPartyVoice();
+          };
+          setTimeout(finish, 4500);
+          Promise.resolve(activeP).then(finish, finish);
+        } else {
+          playPartyVoice();
+        }
+
         const actor = document.querySelector('.chicken-actor');
         if (actor) {
           actor.classList.remove('idle');
@@ -9994,6 +10560,7 @@ window.__HMC_SINGLE_FILE__ = true;
         }, 2200);
       }, 500);
     }
+    return isParty;
   }
 
   function setupDragToTarget(dragEl, targetSelector, onDrop) {
@@ -12758,6 +13325,9 @@ window.__HMC_SINGLE_FILE__ = true;
       COLOR_SUB_ITEMS,
       sub,
       (nextSub) => {
+        if (HMC.audio && typeof HMC.audio.cancelPendingTransitions === 'function') {
+          HMC.audio.cancelPendingTransitions();
+        }
         state.colorSubMode = nextSub;
         state.colorLocked = false;
         HMC.audio.SFX.pop();
@@ -12931,21 +13501,27 @@ window.__HMC_SINGLE_FILE__ = true;
       HMC.storage.recordAttempt('color_basic', isCorrect, target.zh);
     }
     if (isCorrect) {
+      const roundRef = state.colorBasicRound;
       state.colorLocked = true;
-      state.colorBasicRound.hatched = true;
+      roundRef.hatched = true;
       HMC.audio.SFX.success();
       setTimeout(() => HMC.audio.SFX.cheep(), 200);
       HMC.effects.burstConfetti(26);
       HMC.effects.spawnFloatingWord(`⭐ 答对啦！${target.zh}`, x, y - 24, target.fill);
-      HMC.effects.awardStar();
+      const isParty = HMC.effects.awardStar();
       renderBasicColorSubMode(false);
-      HMC.audio.praiseWithPrompt(`真棒！这就是【${target.zh}】！`, `Great job! ${target.en}!`);
-      setTimeout(() => {
-        if (state.mode === 'colors' && state.colorSubMode === 'basic') {
+      const praiseZh = `真棒！这就是【${target.zh}】！`;
+      const praiseEn = `Great job! ${target.en}!`;
+      if (isParty) HMC.audio.setPrompt(praiseZh, praiseEn, false);
+      else HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
+      HMC.audio.waitForSpeechThen(
+        1200,
+        () => {
           HMC.audio.SFX.cluck();
           renderBasicColorSubMode(true);
-        }
-      }, 1950);
+        },
+        () => state.mode === 'colors' && state.colorSubMode === 'basic' && state.colorBasicRound === roundRef
+      );
     } else {
       state.colorWrongCount++;
       HMC.audio.SFX.boing();
@@ -13094,18 +13670,20 @@ window.__HMC_SINGLE_FILE__ = true;
       setTimeout(() => HMC.audio.SFX.cheep(), 200);
       HMC.effects.burstConfetti(32);
       HMC.effects.spawnFloatingWord(`✨ 变出${r.target.zh}啦！`, x, y - 24, r.target.fill);
-      HMC.effects.awardStar();
+      const isParty = HMC.effects.awardStar();
       renderColorMixSubMode(false);
-      HMC.audio.praiseWithPrompt(
-        `太厉害啦！${cA.zh}加${cB.zh}，真的变出了【${r.target.zh}】！`,
-        `Magic! ${cA.en} and ${cB.en} make ${r.target.en}!`
-      );
-      setTimeout(() => {
-        if (state.mode === 'colors' && state.colorSubMode === 'mix') {
+      const praiseZh = `太厉害啦！${cA.zh}加${cB.zh}，真的变出了【${r.target.zh}】！`;
+      const praiseEn = `Magic! ${cA.en} and ${cB.en} make ${r.target.en}!`;
+      if (isParty) HMC.audio.setPrompt(praiseZh, praiseEn, false);
+      else HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
+      HMC.audio.waitForSpeechThen(
+        1400,
+        () => {
           HMC.audio.SFX.cluck();
           renderColorMixSubMode(true);
-        }
-      }, 2350);
+        },
+        () => state.mode === 'colors' && state.colorSubMode === 'mix' && state.colorMixRound === r
+      );
     } else {
       state.colorLocked = true;
       state.colorWrongCount++;
@@ -13119,14 +13697,16 @@ window.__HMC_SINGLE_FILE__ = true;
         `哇，${cA.zh}加${cB.zh}变成了${mixed.zh}哦！我们要变出${r.target.zh}，再试一次吧！`,
         `${cA.en} and ${cB.en} make ${mixed.en}! Let us try to make ${r.target.en}!`
       );
-      setTimeout(() => {
-        if (state.mode === 'colors' && state.colorSubMode === 'mix' && !r.solved) {
+      HMC.audio.waitForSpeechThen(
+        1200,
+        () => {
           if (r.level === 2) r.slot1 = null;
           r.slot2 = null;
           state.colorLocked = false;
           renderColorMixSubMode(false);
-        }
-      }, 1450);
+        },
+        () => state.mode === 'colors' && state.colorSubMode === 'mix' && state.colorMixRound === r && !r.solved
+      );
     }
   }
 
@@ -13215,15 +13795,20 @@ window.__HMC_SINGLE_FILE__ = true;
       setTimeout(() => HMC.audio.SFX.cheep(), 200);
       HMC.effects.burstConfetti(30);
       HMC.effects.spawnFloatingWord(`🚂 对啦！${r.answer.zh}`, x, y - 24, r.answer.fill);
-      HMC.effects.awardStar();
+      const isParty = HMC.effects.awardStar();
       renderColorPatternSubMode(false);
-      HMC.audio.praiseWithPrompt(`真聪明！规律接龙成功，问号就是【${r.answer.zh}】！`, `Awesome! The missing color is ${r.answer.en}!`);
-      setTimeout(() => {
-        if (state.mode === 'colors' && state.colorSubMode === 'pattern') {
+      const praiseZh = `真聪明！规律接龙成功，问号就是【${r.answer.zh}】！`;
+      const praiseEn = `Awesome! The missing color is ${r.answer.en}!`;
+      if (isParty) HMC.audio.setPrompt(praiseZh, praiseEn, false);
+      else HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
+      HMC.audio.waitForSpeechThen(
+        1300,
+        () => {
           HMC.audio.SFX.cluck();
           renderColorPatternSubMode(true);
-        }
-      }, 2200);
+        },
+        () => state.mode === 'colors' && state.colorSubMode === 'pattern' && state.colorPatternRound === r
+      );
     } else {
       state.colorWrongCount++;
       HMC.audio.SFX.boing();
@@ -13291,6 +13876,9 @@ window.__HMC_SINGLE_FILE__ = true;
       MATH_SUB_ITEMS,
       sub,
       (nextSub) => {
+        if (HMC.audio && typeof HMC.audio.cancelPendingTransitions === 'function') {
+          HMC.audio.cancelPendingTransitions();
+        }
         state.mathSubMode = nextSub;
         state.mathLocked = false;
         state.feedLocked = false;
@@ -13420,15 +14008,19 @@ window.__HMC_SINGLE_FILE__ = true;
         HMC.audio.SFX.cheep();
         HMC.effects.burstConfetti(30);
         HMC.effects.spawnFloatingWord(`❤️ 刚好 ${r.target} 颗！`, window.innerWidth / 2, window.innerHeight * 0.38, '#FF5D6C');
-        HMC.effects.awardStar();
-        HMC.audio.praiseWithPrompt(`哇！刚刚好 ${r.target} 颗玉米，真聪明！`, `Yum! Exactly ${r.target} corn!`);
+        const isParty = HMC.effects.awardStar();
+        const praiseZh = `哇！刚刚好 ${r.target} 颗玉米，真聪明！`;
+        const praiseEn = `Yum! Exactly ${r.target} corn!`;
+        if (isParty) HMC.audio.setPrompt(praiseZh, praiseEn, false);
+        else HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
+        HMC.audio.waitForSpeechThen(
+          1300,
+          () => {
+            renderFeedSubMode(true);
+          },
+          () => state.mode === 'counting' && state.mathSubMode === 'feed' && state.feedRound === r
+        );
       }, 180);
-
-      setTimeout(() => {
-        if (state.mode === 'counting' && state.mathSubMode === 'feed' && state.feedRound === r) {
-          renderFeedSubMode(true);
-        }
-      }, 2200);
     } else {
       renderFeedSubMode(false);
       const chickEl = document.getElementById('hungryChick');
@@ -13615,18 +14207,20 @@ window.__HMC_SINGLE_FILE__ = true;
       setTimeout(() => HMC.audio.SFX.cheep(), 200);
       HMC.effects.burstConfetti(28);
       HMC.effects.spawnFloatingWord(`⭐ 刚刚好！`, x, y - 24, '#FF922B');
-      HMC.effects.awardStar();
+      const isParty = HMC.effects.awardStar();
       renderSizeMatch(false);
-      HMC.audio.praiseWithPrompt(
-        `太棒啦！${target.eggZh}住进${target.nestZh}里，刚刚好！`,
-        `Perfect! The ${target.en} egg fits the ${target.en} nest!`
-      );
-      setTimeout(() => {
-        if (state.mode === 'counting' && state.mathSubMode === 'size' && state.sizeRound === r) {
+      const praiseZh = `太棒啦！${target.eggZh}住进${target.nestZh}里，刚刚好！`;
+      const praiseEn = `Perfect! The ${target.en} egg fits the ${target.en} nest!`;
+      if (isParty) HMC.audio.setPrompt(praiseZh, praiseEn, false);
+      else HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
+      HMC.audio.waitForSpeechThen(
+        1300,
+        () => {
           HMC.audio.SFX.cluck();
           renderSizeSubMode(true);
-        }
-      }, 2050);
+        },
+        () => state.mode === 'counting' && state.mathSubMode === 'size' && state.sizeRound === r
+      );
     } else {
       state.mathWrongCount++;
       HMC.audio.SFX.boing();
@@ -13783,22 +14377,24 @@ window.__HMC_SINGLE_FILE__ = true;
           HMC.audio.SFX.success();
           HMC.audio.SFX.cheep();
           HMC.effects.burstConfetti(34);
-          HMC.effects.awardStar();
+          const isParty = HMC.effects.awardStar();
           const praiseZh = r.count === 4
             ? '排得真整齐，从小到大一二三四！'
             : '排得真整齐，从小到大一二三！';
           const praiseEn = r.count === 4
             ? 'So neat! Smallest to biggest, one two three four!'
             : 'So neat! Smallest to biggest, one two three!';
-          HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
+          if (isParty) HMC.audio.setPrompt(praiseZh, praiseEn, false);
+          else HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
+          HMC.audio.waitForSpeechThen(
+            1400,
+            () => {
+              HMC.audio.SFX.cluck();
+              renderSizeSubMode(true);
+            },
+            () => state.mode === 'counting' && state.mathSubMode === 'size' && state.sizeRound === r
+          );
         }, 180);
-
-        setTimeout(() => {
-          if (state.mode === 'counting' && state.mathSubMode === 'size' && state.sizeRound === r) {
-            HMC.audio.SFX.cluck();
-            renderSizeSubMode(true);
-          }
-        }, 2350);
       } else {
         renderSizeOrder(false);
         HMC.audio.speak(
@@ -14055,18 +14651,20 @@ window.__HMC_SINGLE_FILE__ = true;
       setTimeout(() => HMC.audio.SFX.cheep(), 200);
       HMC.effects.burstConfetti(32);
       HMC.effects.spawnFloatingWord(`⭐ 等于 ${r.ans}！`, x, y - 24, '#51CF66');
-      HMC.effects.awardStar();
+      const isParty = HMC.effects.awardStar();
       renderAddSubSubMode(false);
-      HMC.audio.praiseWithPrompt(
-        `答对啦！${r.a} ${r.op === '+' ? '加' : '减'} ${r.b} 等于 ${r.ans}！`,
-        `Correct! ${r.a} ${r.op === '+' ? 'plus' : 'minus'} ${r.b} equals ${r.ans}!`
-      );
-      setTimeout(() => {
-        if (state.mode === 'counting' && state.mathSubMode === 'addsub' && state.addSubRound === r) {
+      const praiseZh = `答对啦！${r.a} ${r.op === '+' ? '加' : '减'} ${r.b} 等于 ${r.ans}！`;
+      const praiseEn = `Correct! ${r.a} ${r.op === '+' ? 'plus' : 'minus'} ${r.b} equals ${r.ans}!`;
+      if (isParty) HMC.audio.setPrompt(praiseZh, praiseEn, false);
+      else HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
+      HMC.audio.waitForSpeechThen(
+        1300,
+        () => {
           HMC.audio.SFX.cluck();
           renderAddSubSubMode(true);
-        }
-      }, 2200);
+        },
+        () => state.mode === 'counting' && state.mathSubMode === 'addsub' && state.addSubRound === r
+      );
     } else {
       state.mathWrongCount++;
       HMC.audio.SFX.boing();
@@ -14141,6 +14739,9 @@ window.__HMC_SINGLE_FILE__ = true;
       SHAPE_SUB_ITEMS,
       sub,
       (nextSub) => {
+        if (HMC.audio && typeof HMC.audio.cancelPendingTransitions === 'function') {
+          HMC.audio.cancelPendingTransitions();
+        }
         state.shapeSubMode = nextSub;
         state.shapeLocked = false;
         HMC.audio.SFX.pop();
@@ -14322,21 +14923,27 @@ window.__HMC_SINGLE_FILE__ = true;
       HMC.storage.recordAttempt('shape_basic', isCorrect, target.zh);
     }
     if (isCorrect) {
+      const roundRef = state.shapeBasicRound;
       state.shapeLocked = true;
-      state.shapeBasicRound.hatched = true;
+      roundRef.hatched = true;
       HMC.audio.SFX.success();
       setTimeout(() => HMC.audio.SFX.cheep(), 200);
       HMC.effects.burstConfetti(26);
       HMC.effects.spawnFloatingWord(`⭐ 是${target.zh}！`, x, y - 24, target.color);
-      HMC.effects.awardStar();
+      const isParty = HMC.effects.awardStar();
       renderBasicShapeSubMode(false);
-      HMC.audio.praiseWithPrompt(`答对啦！这是【${target.zh}】！`, `Yes! It is a ${target.en}!`);
-      setTimeout(() => {
-        if (state.mode === 'shapes' && state.shapeSubMode === 'basic') {
+      const praiseZh = `答对啦！这是【${target.zh}】！`;
+      const praiseEn = `Yes! It is a ${target.en}!`;
+      if (isParty) HMC.audio.setPrompt(praiseZh, praiseEn, false);
+      else HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
+      HMC.audio.waitForSpeechThen(
+        1200,
+        () => {
           HMC.audio.SFX.cluck();
           renderBasicShapeSubMode(true);
-        }
-      }, 1950);
+        },
+        () => state.mode === 'shapes' && state.shapeSubMode === 'basic' && state.shapeBasicRound === roundRef
+      );
     } else {
       state.shapeWrongCount++;
       HMC.audio.SFX.boing();
@@ -14443,15 +15050,20 @@ window.__HMC_SINGLE_FILE__ = true;
       setTimeout(() => HMC.audio.SFX.cheep(), 200);
       HMC.effects.burstConfetti(32);
       HMC.effects.spawnFloatingWord(`🕵️ 找对啦！`, x, y - 24, r.targetColor.fill);
-      HMC.effects.awardStar();
+      const isParty = HMC.effects.awardStar();
       renderShapeClueSubMode(false);
-      HMC.audio.praiseWithPrompt(`太棒啦！所有线索全都答对，小侦探真厉害！`, `Super detective! You matched every clue!`);
-      setTimeout(() => {
-        if (state.mode === 'shapes' && state.shapeSubMode === 'clue') {
+      const praiseZh = '太棒啦！所有线索全都答对，小侦探真厉害！';
+      const praiseEn = 'Super detective! You matched every clue!';
+      if (isParty) HMC.audio.setPrompt(praiseZh, praiseEn, false);
+      else HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
+      HMC.audio.waitForSpeechThen(
+        1300,
+        () => {
           HMC.audio.SFX.cluck();
           renderShapeClueSubMode(true);
-        }
-      }, 2200);
+        },
+        () => state.mode === 'shapes' && state.shapeSubMode === 'clue' && state.shapeClueRound === r
+      );
     } else {
       state.shapeWrongCount++;
       HMC.audio.SFX.boing();
@@ -14582,18 +15194,24 @@ window.__HMC_SINGLE_FILE__ = true;
         state.shapeBuildWins++;
         renderShapeBuildSubMode(false);
         setTimeout(() => {
+          if (state.mode !== 'shapes' || state.shapeSubMode !== 'build' || state.shapeBuildRound !== r) return;
           HMC.audio.SFX.success();
           HMC.audio.SFX.cheep();
           HMC.effects.burstConfetti(34);
-          HMC.effects.awardStar();
-          HMC.audio.praiseWithPrompt(`哇！拼出了完整的【${r.bp.zh}】，你是小小建筑师！`, `Hooray! You built the ${r.bp.en}!`);
+          const isParty = HMC.effects.awardStar();
+          const praiseZh = `哇！拼出了完整的【${r.bp.zh}】，你是小小建筑师！`;
+          const praiseEn = `Hooray! You built the ${r.bp.en}!`;
+          if (isParty) HMC.audio.setPrompt(praiseZh, praiseEn, false);
+          else HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
+          HMC.audio.waitForSpeechThen(
+            1400,
+            () => {
+              HMC.audio.SFX.cluck();
+              renderShapeBuildSubMode(true);
+            },
+            () => state.mode === 'shapes' && state.shapeSubMode === 'build' && state.shapeBuildRound === r
+          );
         }, 160);
-        setTimeout(() => {
-          if (state.mode === 'shapes' && state.shapeSubMode === 'build') {
-            HMC.audio.SFX.cluck();
-            renderShapeBuildSubMode(true);
-          }
-        }, 2400);
       } else {
         renderShapeBuildSubMode(false);
         const leftNames = [...new Set(r.bp.parts.filter((_, i) => !r.filledMask[i]).map(p => SHAPE_BY_ID[p.shape].zh))];
@@ -14684,18 +15302,20 @@ window.__HMC_SINGLE_FILE__ = true;
       setTimeout(() => HMC.audio.SFX.cheep(), 200);
       HMC.effects.burstConfetti(30);
       HMC.effects.spawnFloatingWord(`🔎 找到了！${r.oddShape.zh}`, x, y - 24, r.oddShape.color);
-      HMC.effects.awardStar();
+      const isParty = HMC.effects.awardStar();
       renderShapeOddSubMode(false);
-      HMC.audio.praiseWithPrompt(
-        `太厉害啦！其他三个都是${r.commonShape.zh}，只有这个是【${r.oddShape.zh}】！`,
-        `Brilliant! Three are ${r.commonShape.en}, this one is ${r.oddShape.en}!`
-      );
-      setTimeout(() => {
-        if (state.mode === 'shapes' && state.shapeSubMode === 'odd') {
+      const praiseZh = `太厉害啦！其他三个都是${r.commonShape.zh}，只有这个是【${r.oddShape.zh}】！`;
+      const praiseEn = `Brilliant! Three are ${r.commonShape.en}, this one is ${r.oddShape.en}!`;
+      if (isParty) HMC.audio.setPrompt(praiseZh, praiseEn, false);
+      else HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
+      HMC.audio.waitForSpeechThen(
+        1300,
+        () => {
           HMC.audio.SFX.cluck();
           renderShapeOddSubMode(true);
-        }
-      }, 2300);
+        },
+        () => state.mode === 'shapes' && state.shapeSubMode === 'odd' && state.shapeOddRound === r
+      );
     } else {
       state.shapeWrongCount++;
       HMC.audio.SFX.boing();
@@ -14851,6 +15471,7 @@ window.__HMC_SINGLE_FILE__ = true;
       phase: 'flavor', // 'flavor' | 'pouring' | 'scrub' | 'rinse' | 'shake' | 'dry' | 'done'
       flavor: null,
       expression: 'muddy', // 'muddy' | 'tickle' | 'rinse' | 'fluff' | 'done'
+      scrubLocked: false,
       completed: false,
       duckyQuacks: 0,
       bubblesPopped: 0,
@@ -15781,6 +16402,10 @@ window.__HMC_SINGLE_FILE__ = true;
       }
     }
 
+    if (HMC.audio && HMC.audio.setPrompt) {
+      HMC.audio.setPrompt(flavor.pourZh, flavor.pourEn);
+    }
+
     const enterScrub = () => {
       if (!bathState || bathState.phase !== 'pouring') return;
       if (mountContainer) {
@@ -15794,15 +16419,20 @@ window.__HMC_SINGLE_FILE__ = true;
       syncHabitStepIndex();
       syncSceneVisuals();
       updateStepsAndDockUI();
-      if (HMC.audio && HMC.audio.setPrompt) {
-        HMC.audio.setPrompt(flavor.pourZh, flavor.pourEn);
-      }
     };
 
     if (opts.instant) {
       enterScrub();
+    } else if (HMC.audio && typeof HMC.audio.waitForSpeechThen === 'function') {
+      const token = mountToken;
+      HMC.audio.waitForSpeechThen(
+        800,
+        enterScrub,
+        () => token === mountToken && bathState && bathState.phase === 'pouring',
+        6000
+      );
     } else {
-      schedule(enterScrub, 580);
+      schedule(enterScrub, 800);
     }
     return true;
   }
@@ -15923,7 +16553,8 @@ window.__HMC_SINGLE_FILE__ = true;
   }
 
   function completeScrubPhase(opts = {}) {
-    if (!bathState || bathState.phase !== 'scrub') return;
+    if (!bathState || bathState.phase !== 'scrub' || bathState.scrubLocked) return;
+    bathState.scrubLocked = true;
     stopDrag();
 
     bathState.spots.forEach(s => {
@@ -15957,8 +16588,16 @@ window.__HMC_SINGLE_FILE__ = true;
 
     if (opts.instant) {
       enterRinse();
+    } else if (HMC.audio && typeof HMC.audio.waitForSpeechThen === 'function') {
+      const token = mountToken;
+      HMC.audio.waitForSpeechThen(
+        800,
+        enterRinse,
+        () => token === mountToken && bathState && bathState.phase === 'scrub',
+        6000
+      );
     } else {
-      schedule(enterRinse, 520);
+      schedule(enterRinse, 800);
     }
   }
 
@@ -16061,8 +16700,16 @@ window.__HMC_SINGLE_FILE__ = true;
 
     if (opts.instant) {
       enterDry();
+    } else if (HMC.audio && typeof HMC.audio.waitForSpeechThen === 'function') {
+      const token = mountToken;
+      HMC.audio.waitForSpeechThen(
+        800,
+        enterDry,
+        () => token === mountToken && bathState && bathState.phase === 'shake',
+        6000
+      );
     } else {
-      schedule(enterDry, 750);
+      schedule(enterDry, 800);
     }
   }
 
@@ -16161,17 +16808,16 @@ window.__HMC_SINGLE_FILE__ = true;
     if (HMC.effects && HMC.effects.burstConfetti) {
       HMC.effects.burstConfetti(42);
     }
-    if (HMC.effects && HMC.effects.awardStar) {
-      HMC.effects.awardStar();
-    }
+    const isParty = (HMC.effects && HMC.effects.awardStar) ? HMC.effects.awardStar() : false;
     if (HMC.storage && HMC.storage.recordAttempt) {
       HMC.storage.recordAttempt('play_habits', true);
     }
-    if (HMC.audio && HMC.audio.praiseWithPrompt) {
-      HMC.audio.praiseWithPrompt(
-        '洗白白吹蓬松，香喷喷的爱干净好宝宝！',
-        'Squeaky clean and fluffy! What a great helper!'
-      );
+    const praiseZh = '洗白白吹蓬松，香喷喷的，你真棒！';
+    const praiseEn = 'Squeaky clean and fluffy! What a great helper!';
+    if (isParty && HMC.audio && HMC.audio.setPrompt) {
+      HMC.audio.setPrompt(praiseZh, praiseEn, false);
+    } else if (HMC.audio && HMC.audio.praiseWithPrompt) {
+      HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
     }
   }
 
@@ -16721,6 +17367,9 @@ window.__HMC_SINGLE_FILE__ = true;
     mountToken++;
     stopDrag();
     clearAllTimers();
+    if (HMC.audio && typeof HMC.audio.cancelPendingTransitions === 'function') {
+      HMC.audio.cancelPendingTransitions();
+    }
     activeBubbleCount = 0;
     mountContainer = null;
     mountOpts = {};
@@ -16908,6 +17557,7 @@ window.__HMC_SINGLE_FILE__ = true;
       flavor: FLAVORS[0], // Strawberry pre-selected!
       pastePct: 0,
       pasteLocked: false,
+      brushLocked: false,
       germs: GERMS.map(g => ({
         id: g.id,
         toothId: g.toothId,
@@ -16925,6 +17575,7 @@ window.__HMC_SINGLE_FILE__ = true;
       gargling: false,
       rinsedClean: false,
       plushie: null,
+      plushieLocked: false,
       quiltPct: 0,
       quiltLocked: false,
       lampPullPx: 0,
@@ -18373,8 +19024,16 @@ window.__HMC_SINGLE_FILE__ = true;
 
     if (opts.instant) {
       enterBrush();
+    } else if (HMC.audio && typeof HMC.audio.waitForSpeechThen === 'function') {
+      const token = mountToken;
+      HMC.audio.waitForSpeechThen(
+        800,
+        enterBrush,
+        () => token === mountToken && bedState && bedState.phase === 'paste',
+        6000
+      );
     } else {
-      schedule(enterBrush, 520);
+      schedule(enterBrush, 800);
     }
   }
 
@@ -18462,7 +19121,8 @@ window.__HMC_SINGLE_FILE__ = true;
   }
 
   function enterGargleSubStep(opts = {}) {
-    if (!bedState || bedState.phase !== 'brush') return;
+    if (!bedState || bedState.phase !== 'brush' || bedState.brushLocked) return;
+    bedState.brushLocked = true;
     stopActiveDrag();
 
     if (HMC.audio && HMC.audio.SFX && HMC.audio.SFX.success) {
@@ -18486,8 +19146,16 @@ window.__HMC_SINGLE_FILE__ = true;
 
     if (opts.instant) {
       switchToGargle();
+    } else if (HMC.audio && typeof HMC.audio.waitForSpeechThen === 'function') {
+      const token = mountToken;
+      HMC.audio.waitForSpeechThen(
+        700,
+        switchToGargle,
+        () => token === mountToken && bedState && bedState.phase === 'brush',
+        6000
+      );
     } else {
-      schedule(switchToGargle, 500);
+      schedule(switchToGargle, 700);
     }
   }
 
@@ -18540,6 +19208,14 @@ window.__HMC_SINGLE_FILE__ = true;
 
       if (opts.instant) {
         enterBedroom();
+      } else if (HMC.audio && typeof HMC.audio.waitForSpeechThen === 'function') {
+        const token = mountToken;
+        HMC.audio.waitForSpeechThen(
+          900,
+          enterBedroom,
+          () => token === mountToken && bedState && bedState.phase === 'gargle',
+          6000
+        );
       } else {
         schedule(enterBedroom, 900);
       }
@@ -18557,21 +19233,19 @@ window.__HMC_SINGLE_FILE__ = true;
      Step 3 Mechanics: Plushie Buddy + Vertical Upward Starry Quilt Pull
      ======================================================================== */
 
-  function selectPlushie(plushieId) {
-    if (!bedState || bedState.phase !== 'plushie') return false;
+  function selectPlushie(plushieId, opts = {}) {
+    if (!bedState || bedState.phase !== 'plushie' || bedState.plushieLocked) return false;
     const p = PLUSHIE_BY_ID[plushieId];
     if (!p) return false;
 
     stopActiveDrag();
+    bedState.plushieLocked = true;
     bedState.plushie = p;
-    bedState.phase = 'quilt';
-    syncHabitStepIndex();
+    syncSceneVisuals();
 
     if (HMC.audio && HMC.audio.SFX && HMC.audio.SFX.pop) {
       HMC.audio.SFX.pop();
     }
-    syncSceneVisuals();
-    updateStepsAndDockUI();
 
     spawnStagePop('💖', 208, 108, '#FF6B9D');
     spawnStagePop('✨', 252, 118, '#FFD43B');
@@ -18580,8 +19254,32 @@ window.__HMC_SINGLE_FILE__ = true;
     if (HMC.audio && HMC.audio.setPrompt) {
       HMC.audio.setPrompt(
         `有${p.zh}陪着，好安心呀！现在抓住被角往上拉，帮小鸡盖好被子吧！`,
-        `So cozy with ${p.en}! Pull the starry blanket up!`
+        `So cozy with ${p.en}! Pull the starry blanket up!`,
+        true,
+        { voiceStyle: 'bedtime' }
       );
+    }
+
+    const enterQuilt = () => {
+      if (!bedState || bedState.phase !== 'plushie') return;
+      bedState.phase = 'quilt';
+      syncHabitStepIndex();
+      syncSceneVisuals();
+      updateStepsAndDockUI();
+    };
+
+    if (opts.instant) {
+      enterQuilt();
+    } else if (HMC.audio && typeof HMC.audio.waitForSpeechThen === 'function') {
+      const token = mountToken;
+      HMC.audio.waitForSpeechThen(
+        750,
+        enterQuilt,
+        () => token === mountToken && bedState && bedState.phase === 'plushie',
+        6000
+      );
+    } else {
+      schedule(enterQuilt, 750);
     }
     return true;
   }
@@ -18618,17 +19316,14 @@ window.__HMC_SINGLE_FILE__ = true;
     return setQuiltPct(next, opts);
   }
 
-  function completeQuiltPull() {
+  function completeQuiltPull(opts = {}) {
     if (!bedState || bedState.phase !== 'quilt' || bedState.quiltLocked) return;
     stopActiveDrag();
 
     bedState.quiltPct = 100;
     bedState.quiltLocked = true;
     bedState.chickBedroomExpr = 'yawn';
-    bedState.phase = 'lamp';
-    syncHabitStepIndex();
     syncSceneVisuals();
-    updateStepsAndDockUI();
 
     if (HMC.audio && HMC.audio.SFX && typeof HMC.audio.SFX.yawn === 'function') {
       HMC.audio.SFX.yawn();
@@ -18639,8 +19334,32 @@ window.__HMC_SINGLE_FILE__ = true;
     if (HMC.audio && HMC.audio.setPrompt) {
       HMC.audio.setPrompt(
         '啊～暖暖的小被子真舒服！最后往下拉一下灯绳关灯吧！',
-        'Yawn~ So warm and cozy! Pull the star cord down to turn off the light!'
+        'Yawn~ So warm and cozy! Pull the star cord down to turn off the light!',
+        true,
+        { voiceStyle: 'bedtime' }
       );
+    }
+
+    const enterLamp = () => {
+      if (!bedState || bedState.phase !== 'quilt') return;
+      bedState.phase = 'lamp';
+      syncHabitStepIndex();
+      syncSceneVisuals();
+      updateStepsAndDockUI();
+    };
+
+    if (opts.instant) {
+      enterLamp();
+    } else if (HMC.audio && typeof HMC.audio.waitForSpeechThen === 'function') {
+      const token = mountToken;
+      HMC.audio.waitForSpeechThen(
+        800,
+        enterLamp,
+        () => token === mountToken && bedState && bedState.phase === 'quilt',
+        6000
+      );
+    } else {
+      schedule(enterLamp, 800);
     }
   }
 
@@ -18696,17 +19415,16 @@ window.__HMC_SINGLE_FILE__ = true;
     if (HMC.effects && HMC.effects.burstConfetti) {
       HMC.effects.burstConfetti(36);
     }
-    if (HMC.effects && HMC.effects.awardStar) {
-      HMC.effects.awardStar();
-    }
+    const isParty = (HMC.effects && HMC.effects.awardStar) ? HMC.effects.awardStar() : false;
     if (HMC.storage && HMC.storage.recordAttempt) {
       HMC.storage.recordAttempt('play_habits', true);
     }
-    if (HMC.audio && HMC.audio.praiseWithPrompt) {
-      HMC.audio.praiseWithPrompt(
-        '刷完牙盖好被子关上灯，晚安好梦哟！',
-        'Sparkling teeth, cozy blanket, lights out — sweet dreams!'
-      );
+    const praiseZh = '刷完牙盖好被子关上灯，晚安好梦哟！';
+    const praiseEn = 'Sparkling teeth, cozy blanket, lights out — sweet dreams!';
+    if (isParty && HMC.audio && HMC.audio.setPrompt) {
+      HMC.audio.setPrompt(praiseZh, praiseEn, false, { voiceStyle: 'bedtime' });
+    } else if (HMC.audio && HMC.audio.praiseWithPrompt) {
+      HMC.audio.praiseWithPrompt(praiseZh, praiseEn, { voiceStyle: 'bedtime' });
     }
     return true;
   }
@@ -19316,6 +20034,9 @@ window.__HMC_SINGLE_FILE__ = true;
     mountToken++;
     stopActiveDrag();
     clearAllTimers();
+    if (HMC.audio && typeof HMC.audio.cancelPendingTransitions === 'function') {
+      HMC.audio.cancelPendingTransitions();
+    }
     mountContainer = null;
     mountOpts = {};
   }
@@ -19388,7 +20109,7 @@ window.__HMC_SINGLE_FILE__ = true;
 
   let demoTimer = null;
   let songCelebrateTimer = null;
-  let songResetTimer = null;
+  let songResetHandle = null;
   let isDemoPlaying = false;
   let demoStepIdx = -1;
   let songLocked = false;
@@ -19433,10 +20154,13 @@ window.__HMC_SINGLE_FILE__ = true;
       clearTimeout(songCelebrateTimer);
       songCelebrateTimer = null;
     }
-    if (songResetTimer) {
-      clearTimeout(songResetTimer);
-      songResetTimer = null;
+    if (songResetHandle) {
+      if (typeof songResetHandle.cancel === 'function') songResetHandle.cancel();
+      songResetHandle = null;
       HMC.state.pianoStep = 0;
+    }
+    if (HMC.audio && typeof HMC.audio.cancelPendingTransitions === 'function') {
+      HMC.audio.cancelPendingTransitions();
     }
     songLocked = false;
   }
@@ -19541,9 +20265,9 @@ window.__HMC_SINGLE_FILE__ = true;
       clearTimeout(songCelebrateTimer);
       songCelebrateTimer = null;
     }
-    if (songResetTimer) {
-      clearTimeout(songResetTimer);
-      songResetTimer = null;
+    if (songResetHandle) {
+      if (typeof songResetHandle.cancel === 'function') songResetHandle.cancel();
+      songResetHandle = null;
       HMC.state.pianoStep = 0;
       songLocked = false;
     }
@@ -19616,24 +20340,25 @@ window.__HMC_SINGLE_FILE__ = true;
           if (state.mode !== 'play' || state.playSubMode !== 'piano' || state.pianoSongId !== song.id) return;
           HMC.audio.SFX.fanfare();
           HMC.effects.burstConfetti(42);
-          HMC.effects.awardStar();
-          HMC.audio.praiseWithPrompt(
-            `太棒啦！你弹完了一整首《${song.zh}》！`,
-            `Bravo! You played the whole ${song.en} song!`
-          );
+          const isParty = HMC.effects.awardStar();
+          const praiseZh = `太棒啦！你弹完了一整首《${song.zh}》！`;
+          const praiseEn = `Bravo! You played the whole ${song.en} song!`;
+          if (isParty) HMC.audio.setPrompt(praiseZh, praiseEn, false);
+          else HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
           document.querySelectorAll('.piano-chick-key').forEach((k, idx) => {
             setTimeout(() => animatePianoKey(k), idx * 65);
           });
+          songResetHandle = HMC.audio.waitForSpeechThen(
+            1400,
+            () => {
+              songResetHandle = null;
+              state.pianoStep = 0;
+              songLocked = false;
+              updatePianoCueAndProgress();
+            },
+            () => state.mode === 'play' && state.playSubMode === 'piano' && state.pianoSongId === song.id
+          );
         }, 160);
-
-        songResetTimer = setTimeout(() => {
-          songResetTimer = null;
-          state.pianoStep = 0;
-          songLocked = false;
-          if (state.mode === 'play' && state.playSubMode === 'piano') {
-            updatePianoCueAndProgress();
-          }
-        }, 1800);
       }
     }
     // Note: tapping a non-target note in guided mode still plays joyfully with ZERO punishment!
@@ -20610,11 +21335,6 @@ window.__HMC_SINGLE_FILE__ = true;
       panelVoices: document.getElementById('parentPanelVoices'),
       panelInsights: document.getElementById('parentTabInsights'),
       insightsContent: document.getElementById('insightsContent'),
-      nicknameInput: document.getElementById('nicknameInput'),
-      nicknameSaveBtn: document.getElementById('nicknameSaveBtn'),
-      nicknameTestBtn: document.getElementById('nicknameTestBtn'),
-      nicknameChips: document.getElementById('nicknameChips'),
-      nicknameFeedback: document.getElementById('nicknameFeedback'),
       voiceSupportBanner: document.getElementById('voiceSupportBanner'),
       voiceSlotsList: document.getElementById('voiceSlotsList'),
       voiceCountBadge: document.getElementById('voiceCountBadge'),
@@ -20630,25 +21350,15 @@ window.__HMC_SINGLE_FILE__ = true;
     return !!(parentModal && parentModal.classList.contains('open'));
   }
 
-  function getNick() {
-    if (HMC.audio && typeof HMC.audio.getNick === 'function') {
-      return HMC.audio.getNick();
-    }
-    if (HMC.storage && typeof HMC.storage.getNickname === 'function') {
-      return HMC.storage.getNickname();
-    }
-    return '宝贝';
-  }
-
   function getVoiceSlots() {
     if (HMC.data && Array.isArray(HMC.data.VOICE_SLOTS) && HMC.data.VOICE_SLOTS.length > 0) {
       return HMC.data.VOICE_SLOTS;
     }
     return [
-      { id: 'praise', icon: '🌟', title: '答对夸奖',   hintTpl: '例：“{nick}真棒！答对啦！”' },
+      { id: 'praise', icon: '🌟', title: '答对夸奖',   hintTpl: '例：“你真棒！答对啦！”' },
       { id: 'lay',    icon: '🥚', title: '下蛋咯咯哒', hintTpl: '例：“咯咯哒！快乐小鸡下蛋啦！”' },
-      { id: 'party',  icon: '🎉', title: '集星开派对', hintTpl: '例：“{nick}太厉害啦，开派对咯！”' },
-      { id: 'sleep',  icon: '🌙', title: '护眼说晚安', hintTpl: '例：“小鸡睡觉咯，{nick}晚安！”' }
+      { id: 'party',  icon: '🎉', title: '集星开派对', hintTpl: '例：“太厉害啦，开派对咯！”' },
+      { id: 'sleep',  icon: '🌙', title: '护眼说晚安', hintTpl: '例：“小鸡睡觉咯，晚安哟！”' }
     ];
   }
 
@@ -20743,11 +21453,10 @@ window.__HMC_SINGLE_FILE__ = true;
   }
 
   function getSlotPreviewTexts(slotId) {
-    const nick = getNick();
     if (slotId === 'praise') {
       return {
-        zh: `${nick}真棒！答对啦！`,
-        en: `Great job, ${nick}!`
+        zh: '你真棒！答对啦！',
+        en: 'Great job! You got it right!'
       };
     }
     if (slotId === 'lay') {
@@ -20758,13 +21467,14 @@ window.__HMC_SINGLE_FILE__ = true;
     }
     if (slotId === 'party') {
       return {
-        zh: `${nick}太厉害啦，集齐五颗星开派对咯！`,
+        zh: '哇！集齐五颗星啦！快乐小鸡大派对！',
         en: 'Five stars! Happy Mrs. Chicken party!'
       };
     }
     return {
-      zh: `小鸡睡觉咯，${nick}晚安！`,
-      en: 'Happy Mrs. Chicken is sleepy. Good night!'
+      zh: '快乐小鸡困啦，要睡觉咯。今天玩得真棒，让眼睛和小鸡一起休息一下吧，晚安哟！',
+      en: 'Happy Mrs. Chicken is sleepy. Good night!',
+      voiceStyle: 'bedtime'
     };
   }
 
@@ -20785,11 +21495,10 @@ window.__HMC_SINGLE_FILE__ = true;
       stopActiveRecording(true);
     }
 
-    if (HMC.audio && typeof HMC.audio.stopParentClip === 'function') {
+    if (HMC.audio && typeof HMC.audio.stopAllSpeech === 'function') {
+      HMC.audio.stopAllSpeech();
+    } else if (HMC.audio && typeof HMC.audio.stopParentClip === 'function') {
       HMC.audio.stopParentClip();
-    }
-    if ('speechSynthesis' in window) {
-      try { window.speechSynthesis.cancel(); } catch (e) {}
     }
 
     if (!isRecordingSupported()) {
@@ -21048,7 +21757,6 @@ window.__HMC_SINGLE_FILE__ = true;
     const clips = (HMC.storage && typeof HMC.storage.getVoiceClips === 'function')
       ? HMC.storage.getVoiceClips()
       : {};
-    const nick = getNick();
     const supported = isRecordingSupported();
 
     voiceSlotsList.innerHTML = '';
@@ -21058,7 +21766,7 @@ window.__HMC_SINGLE_FILE__ = true;
       const currentRecId = activeRecSession ? activeRecSession.slotId : null;
       const isRecThis = currentRecId === slot.id;
       const isRecOther = Boolean(currentRecId && currentRecId !== slot.id);
-      const hintText = String(slot.hintTpl || '').replace(/\{nick\}/g, nick);
+      const hintText = String(slot.hintTpl || '').replace(/\{nick\}/g, '');
 
       const card = document.createElement('div');
       card.className = 'voice-slot-card' + (isRecThis ? ' is-recording' : (hasClip ? ' is-recorded' : ''));
@@ -21127,7 +21835,13 @@ window.__HMC_SINGLE_FILE__ = true;
           return;
         }
         const preview = getSlotPreviewTexts(slot.id);
-        HMC.audio.playParentClip(slot.id, preview.zh, preview.en);
+        HMC.audio.playParentClip(
+          slot.id,
+          preview.zh,
+          preview.en,
+          null,
+          preview.voiceStyle ? { voiceStyle: preview.voiceStyle } : {}
+        );
       });
       actionsRow.appendChild(playBtn);
 
@@ -21167,47 +21881,12 @@ window.__HMC_SINGLE_FILE__ = true;
   }
 
   /* ==========================================================================
-     Child Nickname Personalization UI
+     Universal Sleep Greeting Sync
      ========================================================================== */
   function syncSleepGreetingText() {
     const { sleepGreetingText } = getEls();
     if (!sleepGreetingText) return;
-    const nick = getNick();
-    sleepGreetingText.textContent = `${nick}今天玩得真棒！我们让眼睛和小鸡一起休息一下吧，晚安哟！`;
-  }
-
-  function showNicknameFeedback(text, isWarn = false) {
-    const { nicknameFeedback } = getEls();
-    if (!nicknameFeedback) return;
-    nicknameFeedback.textContent = text;
-    nicknameFeedback.classList.toggle('is-warn', Boolean(isWarn));
-    nicknameFeedback.classList.remove('hidden');
-  }
-
-  function syncNicknameUI() {
-    const { nicknameInput, nicknameChips } = getEls();
-    const nick = getNick();
-    if (nicknameInput) {
-      nicknameInput.value = nick;
-    }
-    if (nicknameChips) {
-      nicknameChips.querySelectorAll('.nick-chip').forEach(chip => {
-        chip.classList.toggle('active', chip.dataset.nick === nick);
-      });
-    }
-    syncSleepGreetingText();
-  }
-
-  function saveNicknameValue(rawName, playPop = true) {
-    const saved = (HMC.storage && typeof HMC.storage.setNickname === 'function')
-      ? HMC.storage.setNickname(rawName)
-      : '宝贝';
-    syncNicknameUI();
-    showNicknameFeedback(`✅ 已保存专属小名「${saved}」，小鸡现在会叫你${saved}啦！`, false);
-    if (playPop && HMC.audio && HMC.audio.SFX) {
-      HMC.audio.SFX.pop();
-    }
-    return saved;
+    sleepGreetingText.textContent = '今天玩得真棒！我们让眼睛和小鸡一起休息一下吧，晚安哟！';
   }
 
   /* ==========================================================================
@@ -21246,7 +21925,6 @@ window.__HMC_SINGLE_FILE__ = true;
             ? HMC.data.RARE_BUDDIES.length
             : 24
         };
-    const nick = getNick();
 
     insightsContent.innerHTML = '';
 
@@ -21315,11 +21993,11 @@ window.__HMC_SINGLE_FILE__ = true;
 
       const title = document.createElement('div');
       title.className = 'insights-empty-title';
-      title.textContent = `${nick}的成长小档案准备就绪！`;
+      title.textContent = '成长小档案准备就绪！';
 
       const desc = document.createElement('p');
       desc.className = 'insights-empty-desc';
-      desc.textContent = '去颜色、数学、形状或乐园陪宝贝玩几关，这里就会自动生成专属强项与陪玩小建议哦～';
+      desc.textContent = '去颜色、数学、形状或乐园玩几关，这里就会自动生成专属强项与陪玩小建议哦～';
 
       emptyCard.appendChild(emoji);
       emptyCard.appendChild(title);
@@ -21334,7 +22012,7 @@ window.__HMC_SINGLE_FILE__ = true;
 
     const strengthTitle = document.createElement('div');
     strengthTitle.className = 'insights-card-title';
-    strengthTitle.textContent = `🌟 ${nick}最拿手的强项`;
+    strengthTitle.textContent = '🌟 最拿手的强项';
     strengthCard.appendChild(strengthTitle);
 
     if (summary.strengths.length > 0) {
@@ -21350,7 +22028,7 @@ window.__HMC_SINGLE_FILE__ = true;
     } else {
       const warmNote = document.createElement('p');
       warmNote.className = 'insights-card-note';
-      warmNote.textContent = `${nick}正在认真探索热身中，多试几次很快就能发现拿手强项啦！`;
+      warmNote.textContent = '正在认真探索热身中，多试几次很快就能发现拿手强项啦！';
       strengthCard.appendChild(warmNote);
     }
     insightsContent.appendChild(strengthCard);
@@ -21494,7 +22172,9 @@ window.__HMC_SINGLE_FILE__ = true;
     if (nextTab !== 'insights') {
       clearResetInsightsConfirm();
     }
-    if (HMC.audio && typeof HMC.audio.stopParentClip === 'function') {
+    if (HMC.audio && typeof HMC.audio.stopAllSpeech === 'function') {
+      HMC.audio.stopAllSpeech();
+    } else if (HMC.audio && typeof HMC.audio.stopParentClip === 'function') {
       HMC.audio.stopParentClip();
     }
 
@@ -21522,7 +22202,7 @@ window.__HMC_SINGLE_FILE__ = true;
     } else if (activeTab === 'insights') {
       renderInsightsPanel();
     } else {
-      syncNicknameUI();
+      syncSleepGreetingText();
       updateTimerUI();
     }
   }
@@ -21570,6 +22250,9 @@ window.__HMC_SINGLE_FILE__ = true;
 
   function activateSleepMode() {
     closeParentMenu();
+    if (HMC.audio && typeof HMC.audio.cancelPendingTransitions === 'function') {
+      HMC.audio.cancelPendingTransitions();
+    }
     if (HMC.wardrobe && HMC.wardrobe.closeWardrobe) HMC.wardrobe.closeWardrobe();
     const { sleepOverlay } = getEls();
     syncSleepGreetingText();
@@ -21584,11 +22267,12 @@ window.__HMC_SINGLE_FILE__ = true;
     }
     HMC.audio.SFX.lullaby();
     setTimeout(() => {
-      const nick = getNick();
       HMC.audio.playParentClip(
         'sleep',
-        `快乐小鸡困啦，要睡觉咯。${nick}今天玩得真棒，晚安哟！`,
-        'Happy Mrs. Chicken is sleepy. Good night!'
+        '快乐小鸡困啦，要睡觉咯。今天玩得真棒，让眼睛和小鸡一起休息一下吧，晚安哟！',
+        'Happy Mrs. Chicken is sleepy. Good night!',
+        null,
+        { voiceStyle: 'bedtime' }
       );
     }, 650);
   }
@@ -21596,11 +22280,10 @@ window.__HMC_SINGLE_FILE__ = true;
   function openParentMenu(e, initialTab = null) {
     if (e) e.stopPropagation();
     if (HMC.wardrobe && HMC.wardrobe.closeWardrobe) HMC.wardrobe.closeWardrobe();
-    const { parentModal, nicknameFeedback } = getEls();
+    const { parentModal } = getEls();
     voiceBannerNotice = null;
-    if (nicknameFeedback) nicknameFeedback.classList.add('hidden');
     updateTimerUI();
-    syncNicknameUI();
+    syncSleepGreetingText();
     updateVoiceCountBadge();
     if (parentModal) {
       parentModal.classList.add('open');
@@ -21613,7 +22296,9 @@ window.__HMC_SINGLE_FILE__ = true;
     micRequestToken++;
     clearResetInsightsConfirm();
     stopActiveRecording(true);
-    if (HMC.audio && typeof HMC.audio.stopParentClip === 'function') {
+    if (HMC.audio && typeof HMC.audio.stopAllSpeech === 'function') {
+      HMC.audio.stopAllSpeech();
+    } else if (HMC.audio && typeof HMC.audio.stopParentClip === 'function') {
       HMC.audio.stopParentClip();
     }
     const { parentModal } = getEls();
@@ -21634,16 +22319,12 @@ window.__HMC_SINGLE_FILE__ = true;
     const {
       parentModal,
       parentTabs,
-      nicknameInput,
-      nicknameSaveBtn,
-      nicknameTestBtn,
-      nicknameChips,
       timerBadgeBtn,
       sleepOverlay
     } = getEls();
 
     syncLangButtons();
-    syncNicknameUI();
+    syncSleepGreetingText();
     updateVoiceCountBadge();
 
     const parentMenuBtn = document.getElementById('parentMenuBtn');
@@ -21675,47 +22356,6 @@ window.__HMC_SINGLE_FILE__ = true;
       });
     }
 
-    // Child Nickname Personalization events
-    if (nicknameSaveBtn && nicknameInput) {
-      nicknameSaveBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        saveNicknameValue(nicknameInput.value, true);
-      });
-    }
-    if (nicknameInput) {
-      nicknameInput.addEventListener('keydown', (e) => {
-        e.stopPropagation();
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          saveNicknameValue(nicknameInput.value, true);
-          nicknameInput.blur();
-        }
-      });
-    }
-    if (nicknameTestBtn) {
-      nicknameTestBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const raw = nicknameInput ? nicknameInput.value : getNick();
-        const saved = saveNicknameValue(raw, false);
-        if (!state.soundOn) {
-          showNicknameFeedback('🔇 当前处于静音状态，点击右上角喇叭可开启声音试听哦！', true);
-          return;
-        }
-        HMC.audio.speak(
-          `${saved}真棒！快乐小鸡最喜欢${saved}啦！`,
-          `Great job, ${saved}! Happy Mrs. Chicken loves you!`
-        );
-      });
-    }
-    if (nicknameChips) {
-      nicknameChips.querySelectorAll('.nick-chip').forEach(chip => {
-        chip.addEventListener('click', (e) => {
-          e.stopPropagation();
-          saveNicknameValue(chip.dataset.nick || '宝贝', true);
-        });
-      });
-    }
-
     // Language switcher (preserved 100%)
     document.querySelectorAll('#langChoices [data-lang]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -21727,7 +22367,9 @@ window.__HMC_SINGLE_FILE__ = true;
         else if (state.mode === 'shapes') HMC.modes.shapes.renderShapeMode(false);
         else if (state.mode === 'counting') HMC.modes.math.renderCountingMode(false);
         else if (state.mode === 'play' && HMC.modes.play) HMC.modes.play.renderPlayMode(false);
-        HMC.audio.setPrompt(state.lastPromptZh, state.lastPromptEn, true);
+        HMC.audio.setPrompt(state.lastPromptZh, state.lastPromptEn, true, {
+          voiceStyle: state.lastPromptVoiceStyle || 'daily'
+        });
       });
     });
 
@@ -21768,7 +22410,7 @@ window.__HMC_SINGLE_FILE__ = true;
             HMC.modes.classic.startMeadowLife();
           }
           HMC.audio.SFX.cluck();
-          HMC.audio.speak('早上好，宝贝！快乐小鸡睡醒啦！', 'Good morning! Happy Chicken is awake!');
+          HMC.audio.speak('早上好！快乐小鸡睡醒啦！', 'Good morning! Happy Chicken is awake!');
         }, 1800);
       };
       const cancelHold = () => {
@@ -21793,7 +22435,6 @@ window.__HMC_SINGLE_FILE__ = true;
     closeParentMenu,
     switchParentTab,
     syncLangButtons,
-    syncNicknameUI,
     syncSleepGreetingText,
     renderVoicesPanel,
     renderInsightsPanel,
@@ -21815,6 +22456,13 @@ window.__HMC_SINGLE_FILE__ = true;
     const classicFieldEl = document.getElementById('classicField');
     const classicMiniCountsEl = document.getElementById('classicMiniCounts');
     const classicFabsEl = document.getElementById('classicFabs');
+
+    if (HMC.audio && typeof HMC.audio.cancelPendingTransitions === 'function') {
+      HMC.audio.cancelPendingTransitions();
+    }
+    if (HMC.audio && typeof HMC.audio.stopAllSpeech === 'function') {
+      HMC.audio.stopAllSpeech();
+    }
 
     state.mode = newMode;
     const isClassic = newMode === 'classic';
@@ -21978,7 +22626,9 @@ window.__HMC_SINGLE_FILE__ = true;
       promptBubble.addEventListener('click', (e) => {
         e.stopPropagation();
         HMC.audio.SFX.pop();
-        HMC.audio.speak(state.lastPromptZh, state.lastPromptEn);
+        HMC.audio.speak(state.lastPromptZh, state.lastPromptEn, {
+          voiceStyle: state.lastPromptVoiceStyle || 'daily'
+        });
       });
     }
 
@@ -22004,8 +22654,12 @@ window.__HMC_SINGLE_FILE__ = true;
         e.currentTarget.textContent = state.soundOn ? '🔊' : '🔇';
         if (HMC.storage) HMC.storage.savePrefs({ soundOn: state.soundOn });
         if (!state.soundOn) {
-          if (HMC.audio && HMC.audio.stopParentClip) HMC.audio.stopParentClip();
-          if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+          if (HMC.audio && typeof HMC.audio.stopAllSpeech === 'function') {
+            HMC.audio.stopAllSpeech();
+          } else {
+            if (HMC.audio && HMC.audio.stopParentClip) HMC.audio.stopParentClip();
+            if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+          }
         } else {
           HMC.audio.SFX.pop();
         }
@@ -22049,7 +22703,9 @@ window.__HMC_SINGLE_FILE__ = true;
         }
       } else if (e.key === ' ') {
         e.preventDefault();
-        HMC.audio.speak(state.lastPromptZh, state.lastPromptEn);
+        HMC.audio.speak(state.lastPromptZh, state.lastPromptEn, {
+          voiceStyle: state.lastPromptVoiceStyle || 'daily'
+        });
       } else if (state.mode === 'play' && state.playSubMode === 'piano' && ['1', '2', '3', '4', '5', '6', '7'].includes(e.key)) {
         e.preventDefault();
         if (HMC.modes.play && HMC.modes.play.triggerPianoKey) {

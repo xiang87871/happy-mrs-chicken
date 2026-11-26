@@ -301,44 +301,117 @@
     }
   };
 
-  let activeParentAudio = null;
+  /* ==========================================================================
+     3-Tier Voice & Speech Engine (Tier 1 Parent Clip -> Tier 2 Offline MP3
+     Pack via HMC.voicePack -> Tier 3 Web Speech API Fallback + Watchdog)
+     ========================================================================== */
+
+  let speechGen = 0;
+  let currentSpeechPromise = Promise.resolve();
+  let isActiveSpeaking = false;
+  let activeClipAudio = null;
+  let activeClipCancel = null;
+  let activeUtterance = null;
+  let pendingTransitions = new Set();
+  let pendingTimers = new Set();
 
   function getNick() {
-    if (HMC.storage && typeof HMC.storage.getNickname === 'function') {
-      return HMC.storage.getNickname() || '宝贝';
-    }
-    return '宝贝';
+    return '';
   }
 
   function personalizeZh(text) {
     if (!text || typeof text !== 'string') return '';
-    const nick = getNick();
-    if (!nick || nick === '宝贝') return text;
-    return text.replace(/宝贝/g, nick);
+    return text
+      .replace(/^宝贝[，,]\s*/, '')
+      .replace(/[，,]宝贝([！!？?。])/g, '$1');
   }
 
   function withNick(text) {
-    const base = personalizeZh(text);
-    if (!base) return '';
-    const nick = getNick();
-    if (base.includes(nick)) return base;
-    return `${nick}，${base}`;
+    return personalizeZh(text);
+  }
+
+  function stripSpeechDecorations(text) {
+    if (!text || typeof text !== 'string') return '';
+    return text
+      .replace(/[【】]/g, '')
+      .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{2300}-\u{23FF}\uFE0E\uFE0F\u200D\u20E3]/gu, '')
+      .replace(/[\u00A0\u3000\s]+/g, ' ')
+      .trim();
+  }
+
+  function normalizeVoiceKey(text) {
+    if (!text || typeof text !== 'string') return '';
+    let s = stripSpeechDecorations(text)
+      .replace(/\.{3,}/g, '…')
+      .replace(/~+/g, '～')
+      .trim();
+    // Collapse spaces adjacent to CJK characters or CJK punctuation so keys match identically
+    s = s
+      .replace(/([\u4E00-\u9FFF\u3001-\u303F\uFF00-\uFFEF])\s+/g, '$1')
+      .replace(/\s+([\u4E00-\u9FFF\u3001-\u303F\uFF00-\uFFEF])/g, '$1')
+      .replace(/\s+([,.;:!?])/g, '$1')
+      .trim();
+    return s;
+  }
+
+  function stopActiveClipPlayback() {
+    if (typeof activeClipCancel === 'function') {
+      const cancel = activeClipCancel;
+      activeClipCancel = null;
+      try { cancel(); } catch (e) {}
+    }
+    if (activeClipAudio) {
+      const a = activeClipAudio;
+      activeClipAudio = null;
+      try {
+        a.onended = null;
+        a.onerror = null;
+        if (typeof a.pause === 'function') a.pause();
+        try { a.currentTime = 0; } catch (e) {}
+      } catch (e) {}
+    }
+    activeUtterance = null;
   }
 
   function stopParentClip() {
-    if (activeParentAudio) {
-      try {
-        activeParentAudio.onended = null;
-        activeParentAudio.onerror = null;
-        if (typeof activeParentAudio.pause === 'function') activeParentAudio.pause();
-        try { activeParentAudio.currentTime = 0; } catch (e) {}
-      } catch (e) {}
-      activeParentAudio = null;
+    stopActiveClipPlayback();
+  }
+
+  function stopAllSpeech() {
+    speechGen++;
+    isActiveSpeaking = false;
+    stopActiveClipPlayback();
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try { window.speechSynthesis.cancel(); } catch (e) {}
     }
+    currentSpeechPromise = Promise.resolve();
+  }
+
+  function cancelPendingTransitions() {
+    pendingTransitions.forEach(entry => {
+      try { entry.cancel(); } catch (e) {}
+    });
+    pendingTransitions.clear();
+    pendingTimers.forEach(t => {
+      try { clearTimeout(t); } catch (e) {}
+    });
+    pendingTimers.clear();
+  }
+
+  function isSpeaking() {
+    return isActiveSpeaking;
+  }
+
+  function getSpeechGen() {
+    return speechGen;
+  }
+
+  function getCurrentSpeechPromise() {
+    return currentSpeechPromise;
   }
 
   function pickVoice(langPrefix) {
-    if (!('speechSynthesis' in window)) return null;
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
     const voices = window.speechSynthesis.getVoices() || [];
     return (
       voices.find(v => v.lang && v.lang.toLowerCase().startsWith(langPrefix) && /ting|mei|sin|xiaoxiao|samantha|victoria|google/i.test(v.name)) ||
@@ -347,38 +420,256 @@
     );
   }
 
-  function speak(zhText, enText = '') {
-    const state = HMC.state;
-    stopParentClip();
-    if (!state.soundOn || !('speechSynthesis' in window)) return;
-    const finalZh = personalizeZh(zhText || '');
-    try {
-      window.speechSynthesis.cancel();
-      const queue = [];
-      if (state.lang === 'zh' && finalZh) queue.push({ text: finalZh, lang: 'zh-CN', prefix: 'zh' });
-      else if (state.lang === 'en' && (enText || finalZh)) queue.push({ text: enText || finalZh, lang: 'en-US', prefix: 'en' });
-      else if (state.lang === 'bi') {
-        if (finalZh) queue.push({ text: finalZh, lang: 'zh-CN', prefix: 'zh' });
-        if (enText) queue.push({ text: enText, lang: 'en-US', prefix: 'en' });
+  function playAudioUrl(url, myGen) {
+    return new Promise((resolve) => {
+      if (myGen !== speechGen) {
+        resolve('cancelled');
+        return;
+      }
+      if (!url || typeof window === 'undefined' || typeof window.Audio !== 'function') {
+        resolve('error');
+        return;
       }
 
-      queue.forEach(item => {
-        const u = new SpeechSynthesisUtterance(item.text);
-        u.lang = item.lang;
-        u.rate = item.prefix === 'zh' ? 0.94 : 0.88;
-        u.pitch = 1.18;
-        const voice = pickVoice(item.prefix);
-        if (voice) u.voice = voice;
-        window.speechSynthesis.speak(u);
-      });
-    } catch (e) {}
+      let audio;
+      try {
+        audio = new window.Audio(url);
+        audio.preload = 'auto';
+      } catch (e) {
+        resolve('error');
+        return;
+      }
+
+      let settled = false;
+      let watchdog = null;
+
+      const cleanup = () => {
+        if (watchdog) {
+          clearTimeout(watchdog);
+          watchdog = null;
+        }
+        try {
+          audio.onended = null;
+          audio.onerror = null;
+        } catch (e) {}
+        if (activeClipAudio === audio) activeClipAudio = null;
+        if (activeClipCancel === cancelFn) activeClipCancel = null;
+      };
+
+      const finish = (status) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(status);
+      };
+
+      const cancelFn = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        try {
+          if (typeof audio.pause === 'function') audio.pause();
+          try { audio.currentTime = 0; } catch (e) {}
+        } catch (e) {}
+        resolve('cancelled');
+      };
+
+      activeClipAudio = audio;
+      activeClipCancel = cancelFn;
+
+      audio.onended = () => finish('ended');
+      audio.onerror = () => finish('error');
+
+      // Safety watchdog in case a media stream stalls without firing ended/error
+      watchdog = setTimeout(() => {
+        try {
+          if (typeof audio.pause === 'function') audio.pause();
+        } catch (e) {}
+        finish('error');
+      }, 15000);
+
+      try {
+        const playResult = audio.play();
+        if (playResult && typeof playResult.then === 'function') {
+          playResult.catch(() => finish('error'));
+        }
+      } catch (e) {
+        finish('error');
+      }
+    });
   }
 
-  function playParentClip(slotId, fallbackZh = '', fallbackEn = '', onDone = null) {
-    stopParentClip();
+  function speakViaWebSpeech(seg, voiceStyle, myGen) {
+    return new Promise((resolve) => {
+      if (myGen !== speechGen) {
+        resolve('cancelled');
+        return;
+      }
+      if (
+        !HMC.state ||
+        !HMC.state.soundOn ||
+        typeof window === 'undefined' ||
+        !('speechSynthesis' in window) ||
+        typeof window.SpeechSynthesisUtterance !== 'function'
+      ) {
+        resolve('skipped');
+        return;
+      }
+
+      const cleanText = stripSpeechDecorations(seg.text);
+      if (!cleanText) {
+        resolve('ended');
+        return;
+      }
+
+      let settled = false;
+      let watchdog = null;
+      let u = null;
+
+      const cleanup = () => {
+        if (watchdog) {
+          clearTimeout(watchdog);
+          watchdog = null;
+        }
+        if (u) {
+          try {
+            u.onend = null;
+            u.onerror = null;
+          } catch (e) {}
+        }
+        if (activeClipCancel === cancelFn) activeClipCancel = null;
+        if (activeUtterance === u) activeUtterance = null;
+      };
+
+      const finish = (status) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(status);
+      };
+
+      const cancelFn = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        try {
+          if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+        } catch (e) {}
+        resolve('cancelled');
+      };
+
+      try {
+        u = new window.SpeechSynthesisUtterance(cleanText);
+        u.lang = seg.bcp47;
+        u.pitch = 1.0;
+        u.rate = voiceStyle === 'bedtime' ? 0.88 : 0.96;
+        const voice = pickVoice(seg.lang);
+        if (voice) u.voice = voice;
+
+        activeUtterance = u;
+        activeClipCancel = cancelFn;
+
+        u.onend = () => finish('ended');
+        u.onerror = () => finish('error');
+
+        const watchdogMs = Math.max(1600, cleanText.length * 320 + 1200);
+        watchdog = setTimeout(() => {
+          finish('timeout');
+        }, watchdogMs);
+
+        window.speechSynthesis.speak(u);
+      } catch (e) {
+        finish('error');
+      }
+    });
+  }
+
+  async function speakInternal(zhText, enText, opts, myGen) {
+    const state = HMC.state;
+    if (!state || !state.soundOn || myGen !== speechGen) return;
+
+    const finalZh = personalizeZh(zhText || '');
+    const finalEn = typeof enText === 'string' ? enText : '';
+    const voiceStyle = (opts && opts.voiceStyle) || 'daily';
+
+    const segments = [];
+    if (state.lang === 'zh') {
+      if (finalZh) segments.push({ text: finalZh, lang: 'zh', bcp47: 'zh-CN' });
+    } else if (state.lang === 'en') {
+      if (finalEn || finalZh) segments.push({ text: finalEn || finalZh, lang: 'en', bcp47: 'en-US' });
+    } else if (state.lang === 'bi') {
+      if (finalZh) segments.push({ text: finalZh, lang: 'zh', bcp47: 'zh-CN' });
+      if (finalEn) segments.push({ text: finalEn, lang: 'en', bcp47: 'en-US' });
+    } else {
+      if (finalZh) segments.push({ text: finalZh, lang: 'zh', bcp47: 'zh-CN' });
+    }
+
+    for (let i = 0; i < segments.length; i++) {
+      if (myGen !== speechGen || !state.soundOn) return;
+      const seg = segments[i];
+
+      // Tier 2: Offline pre-generated MP3 pack via HMC.voicePack.resolve(text, lang, voiceStyle)
+      let mp3Urls = null;
+      if (HMC.voicePack && typeof HMC.voicePack.resolve === 'function') {
+        try {
+          const resolved = HMC.voicePack.resolve(seg.text, seg.lang, voiceStyle);
+          if (Array.isArray(resolved) && resolved.length > 0) {
+            mp3Urls = resolved.filter(u => typeof u === 'string' && u.length > 0);
+          } else if (typeof resolved === 'string' && resolved.length > 0) {
+            mp3Urls = [resolved];
+          }
+        } catch (e) {
+          mp3Urls = null;
+        }
+      }
+
+      let mp3Succeeded = false;
+      if (mp3Urls && mp3Urls.length > 0 && typeof window !== 'undefined' && typeof window.Audio === 'function') {
+        mp3Succeeded = true;
+        for (let j = 0; j < mp3Urls.length; j++) {
+          if (myGen !== speechGen || !state.soundOn) return;
+          const res = await playAudioUrl(mp3Urls[j], myGen);
+          if (res === 'cancelled' || myGen !== speechGen) return;
+          if (res === 'error') {
+            mp3Succeeded = false;
+            break;
+          }
+        }
+      }
+
+      // Tier 3: Web Speech API fallback (natural pitch=1.0 + safety watchdog)
+      if (!mp3Succeeded && myGen === speechGen && state.soundOn) {
+        await speakViaWebSpeech(seg, voiceStyle, myGen);
+      }
+    }
+  }
+
+  function speak(zhText, enText = '', opts = {}) {
+    stopAllSpeech();
     if (!HMC.state || !HMC.state.soundOn) {
-      if (typeof onDone === 'function') onDone(false);
-      return false;
+      currentSpeechPromise = Promise.resolve();
+      return currentSpeechPromise;
+    }
+
+    const myGen = speechGen;
+    isActiveSpeaking = true;
+    const p = speakInternal(zhText, enText, opts, myGen).finally(() => {
+      if (myGen === speechGen) {
+        isActiveSpeaking = false;
+      }
+    });
+    currentSpeechPromise = p;
+    return p;
+  }
+
+  function playParentClip(slotId, fallbackZh = '', fallbackEn = '', onDone = null, opts = {}) {
+    stopAllSpeech();
+    if (!HMC.state || !HMC.state.soundOn) {
+      if (typeof onDone === 'function') {
+        try { onDone(false); } catch (e) {}
+      }
+      currentSpeechPromise = Promise.resolve();
+      return currentSpeechPromise;
     }
 
     const hasClip = !!(
@@ -390,78 +681,172 @@
       ? HMC.storage.getVoiceClip(slotId)
       : null;
 
-    if (!dataUrl || typeof window.Audio !== 'function') {
-      if (fallbackZh || fallbackEn) speak(fallbackZh, fallbackEn);
-      if (typeof onDone === 'function') onDone(false);
-      return false;
-    }
-
-    if ('speechSynthesis' in window) {
-      try { window.speechSynthesis.cancel(); } catch (e) {}
-    }
-
-    let audio;
-    try {
-      audio = new window.Audio(dataUrl);
-    } catch (e) {
-      if (fallbackZh || fallbackEn) speak(fallbackZh, fallbackEn);
-      if (typeof onDone === 'function') onDone(false);
-      return false;
-    }
-
-    let settled = false;
-    const handleFallback = () => {
-      if (settled) return;
-      settled = true;
-      if (activeParentAudio === audio) activeParentAudio = null;
-      if (fallbackZh || fallbackEn) speak(fallbackZh, fallbackEn);
-      if (typeof onDone === 'function') onDone(false);
-    };
-    const handleEnded = () => {
-      if (settled) return;
-      settled = true;
-      if (activeParentAudio === audio) activeParentAudio = null;
-      if (typeof onDone === 'function') onDone(true);
-    };
-
-    activeParentAudio = audio;
-    audio.onended = handleEnded;
-    audio.onerror = handleFallback;
-
-    try {
-      const playResult = audio.play();
-      if (playResult && typeof playResult.then === 'function') {
-        playResult.catch(() => handleFallback());
+    if (!dataUrl || typeof window === 'undefined' || typeof window.Audio !== 'function') {
+      const p = (fallbackZh || fallbackEn)
+        ? speak(fallbackZh, fallbackEn, opts)
+        : Promise.resolve();
+      if (typeof onDone === 'function') {
+        p.then(() => {
+          try { onDone(false); } catch (e) {}
+        });
       }
-      return true;
-    } catch (e) {
-      handleFallback();
-      return false;
+      return p;
     }
+
+    const myGen = speechGen;
+    isActiveSpeaking = true;
+    const p = (async () => {
+      try {
+        const res = await playAudioUrl(dataUrl, myGen);
+        if (myGen !== speechGen) {
+          if (typeof onDone === 'function') {
+            try { onDone(false); } catch (e) {}
+          }
+          return;
+        }
+        if (res === 'ended') {
+          if (typeof onDone === 'function') {
+            try { onDone(true); } catch (e) {}
+          }
+          return;
+        }
+        if (fallbackZh || fallbackEn) {
+          await speakInternal(fallbackZh, fallbackEn, opts, myGen);
+        }
+        if (typeof onDone === 'function') {
+          try { onDone(false); } catch (e) {}
+        }
+      } finally {
+        if (myGen === speechGen) {
+          isActiveSpeaking = false;
+        }
+      }
+    })();
+
+    currentSpeechPromise = p;
+    return p;
   }
 
-  function setPrompt(zh, en, shouldSpeak = true) {
+  function delayTracked(ms, entry) {
+    return new Promise((resolve) => {
+      const t = setTimeout(() => {
+        pendingTimers.delete(t);
+        if (entry) entry.timers.delete(t);
+        resolve();
+      }, Math.max(0, ms));
+      pendingTimers.add(t);
+      if (entry) entry.timers.add(t);
+    });
+  }
+
+  function raceWithTimeoutTracked(promise, ms, entry) {
+    if (!promise || typeof promise.then !== 'function') return Promise.resolve();
+    return new Promise((resolve) => {
+      let done = false;
+      let t = null;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        if (t) {
+          clearTimeout(t);
+          pendingTimers.delete(t);
+          if (entry) entry.timers.delete(t);
+          t = null;
+        }
+        resolve();
+      };
+      t = setTimeout(finish, Math.max(0, ms));
+      pendingTimers.add(t);
+      if (entry) entry.timers.add(t);
+      promise.then(finish, finish);
+    });
+  }
+
+  function waitForSpeechThen(minDelayMs, callback, guardFn = null, maxWaitMs = 9000) {
+    const minMs = Math.max(0, Number(minDelayMs) || 0);
+    const maxMs = Math.max(minMs, Number(maxWaitMs) || 9000);
+    const startTime = Date.now();
+    const entry = {
+      cancelled: false,
+      timers: new Set(),
+      cancel() {
+        this.cancelled = true;
+        this.timers.forEach(t => {
+          clearTimeout(t);
+          pendingTimers.delete(t);
+        });
+        this.timers.clear();
+      }
+    };
+    pendingTransitions.add(entry);
+
+    const finalize = () => {
+      pendingTransitions.delete(entry);
+      if (entry.cancelled) return;
+      if (typeof guardFn === 'function') {
+        try {
+          if (!guardFn()) return;
+        } catch (e) {
+          return;
+        }
+      }
+      if (typeof callback === 'function') {
+        callback();
+      }
+    };
+
+    const soundOn = !!(HMC.state && HMC.state.soundOn);
+    if (!soundOn) {
+      delayTracked(minMs, entry).then(finalize);
+      return entry;
+    }
+
+    const activeSpeech = currentSpeechPromise;
+    Promise.all([
+      delayTracked(minMs, entry),
+      raceWithTimeoutTracked(activeSpeech, maxMs, entry)
+    ]).then(() => {
+      if (entry.cancelled) return;
+      const latestSpeech = currentSpeechPromise;
+      const elapsed = Date.now() - startTime;
+      const remainingMs = Math.max(0, maxMs - elapsed);
+      if (latestSpeech && latestSpeech !== activeSpeech && remainingMs > 50) {
+        return raceWithTimeoutTracked(latestSpeech, remainingMs, entry);
+      }
+    }).then(() => {
+      if (entry.cancelled) return;
+      return delayTracked(260, entry);
+    }).then(finalize);
+
+    return entry;
+  }
+
+  function setPrompt(zh, en, shouldSpeak = true, opts = {}) {
     const state = HMC.state;
     const finalZh = personalizeZh(zh || '');
+    const finalEn = typeof en === 'string' ? en : '';
+    const voiceStyle = (opts && opts.voiceStyle) || 'daily';
     state.lastPromptZh = finalZh;
-    state.lastPromptEn = en || '';
+    state.lastPromptEn = finalEn;
+    state.lastPromptVoiceStyle = voiceStyle;
     const promptTextEl = document.getElementById('promptText');
     if (promptTextEl) {
-      if (state.lang === 'en') promptTextEl.textContent = en || finalZh;
-      else if (state.lang === 'bi') promptTextEl.textContent = en ? `${finalZh} · ${en}` : finalZh;
+      if (state.lang === 'en') promptTextEl.textContent = finalEn || finalZh;
+      else if (state.lang === 'bi') promptTextEl.textContent = finalEn ? `${finalZh} · ${finalEn}` : finalZh;
       else promptTextEl.textContent = finalZh;
     }
-    if (shouldSpeak) speak(finalZh, en);
+    if (shouldSpeak) return speak(finalZh, finalEn, opts);
+    return currentSpeechPromise;
   }
 
-  function praiseWithPrompt(zhText, enText = '') {
-    const personalizedZh = withNick(zhText);
-    setPrompt(personalizedZh, enText, false);
-    return playParentClip('praise', personalizedZh, enText);
+  function praiseWithPrompt(zhText, enText = '', opts = {}) {
+    const cleanZh = withNick(zhText);
+    setPrompt(cleanZh, enText, false, opts);
+    return playParentClip('praise', cleanZh, enText, null, opts);
   }
 
   function initVoices() {
-    if ('speechSynthesis' in window) {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.getVoices();
       window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
     }
@@ -474,10 +859,17 @@
     getNick,
     personalizeZh,
     withNick,
+    normalizeVoiceKey,
     stopParentClip,
+    stopAllSpeech,
+    cancelPendingTransitions,
+    isSpeaking,
+    getSpeechGen,
+    getCurrentSpeechPromise,
     playParentClip,
     pickVoice,
     speak,
+    waitForSpeechThen,
     setPrompt,
     praiseWithPrompt,
     initVoices

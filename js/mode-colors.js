@@ -19,6 +19,9 @@
       COLOR_SUB_ITEMS,
       sub,
       (nextSub) => {
+        if (HMC.audio && typeof HMC.audio.cancelPendingTransitions === 'function') {
+          HMC.audio.cancelPendingTransitions();
+        }
         state.colorSubMode = nextSub;
         state.colorLocked = false;
         HMC.audio.SFX.pop();
@@ -192,21 +195,27 @@
       HMC.storage.recordAttempt('color_basic', isCorrect, target.zh);
     }
     if (isCorrect) {
+      const roundRef = state.colorBasicRound;
       state.colorLocked = true;
-      state.colorBasicRound.hatched = true;
+      roundRef.hatched = true;
       HMC.audio.SFX.success();
       setTimeout(() => HMC.audio.SFX.cheep(), 200);
       HMC.effects.burstConfetti(26);
       HMC.effects.spawnFloatingWord(`⭐ 答对啦！${target.zh}`, x, y - 24, target.fill);
-      HMC.effects.awardStar();
+      const isParty = HMC.effects.awardStar();
       renderBasicColorSubMode(false);
-      HMC.audio.praiseWithPrompt(`真棒！这就是【${target.zh}】！`, `Great job! ${target.en}!`);
-      setTimeout(() => {
-        if (state.mode === 'colors' && state.colorSubMode === 'basic') {
+      const praiseZh = `真棒！这就是【${target.zh}】！`;
+      const praiseEn = `Great job! ${target.en}!`;
+      if (isParty) HMC.audio.setPrompt(praiseZh, praiseEn, false);
+      else HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
+      HMC.audio.waitForSpeechThen(
+        1200,
+        () => {
           HMC.audio.SFX.cluck();
           renderBasicColorSubMode(true);
-        }
-      }, 1950);
+        },
+        () => state.mode === 'colors' && state.colorSubMode === 'basic' && state.colorBasicRound === roundRef
+      );
     } else {
       state.colorWrongCount++;
       HMC.audio.SFX.boing();
@@ -355,18 +364,20 @@
       setTimeout(() => HMC.audio.SFX.cheep(), 200);
       HMC.effects.burstConfetti(32);
       HMC.effects.spawnFloatingWord(`✨ 变出${r.target.zh}啦！`, x, y - 24, r.target.fill);
-      HMC.effects.awardStar();
+      const isParty = HMC.effects.awardStar();
       renderColorMixSubMode(false);
-      HMC.audio.praiseWithPrompt(
-        `太厉害啦！${cA.zh}加${cB.zh}，真的变出了【${r.target.zh}】！`,
-        `Magic! ${cA.en} and ${cB.en} make ${r.target.en}!`
-      );
-      setTimeout(() => {
-        if (state.mode === 'colors' && state.colorSubMode === 'mix') {
+      const praiseZh = `太厉害啦！${cA.zh}加${cB.zh}，真的变出了【${r.target.zh}】！`;
+      const praiseEn = `Magic! ${cA.en} and ${cB.en} make ${r.target.en}!`;
+      if (isParty) HMC.audio.setPrompt(praiseZh, praiseEn, false);
+      else HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
+      HMC.audio.waitForSpeechThen(
+        1400,
+        () => {
           HMC.audio.SFX.cluck();
           renderColorMixSubMode(true);
-        }
-      }, 2350);
+        },
+        () => state.mode === 'colors' && state.colorSubMode === 'mix' && state.colorMixRound === r
+      );
     } else {
       state.colorLocked = true;
       state.colorWrongCount++;
@@ -380,14 +391,16 @@
         `哇，${cA.zh}加${cB.zh}变成了${mixed.zh}哦！我们要变出${r.target.zh}，再试一次吧！`,
         `${cA.en} and ${cB.en} make ${mixed.en}! Let us try to make ${r.target.en}!`
       );
-      setTimeout(() => {
-        if (state.mode === 'colors' && state.colorSubMode === 'mix' && !r.solved) {
+      HMC.audio.waitForSpeechThen(
+        1200,
+        () => {
           if (r.level === 2) r.slot1 = null;
           r.slot2 = null;
           state.colorLocked = false;
           renderColorMixSubMode(false);
-        }
-      }, 1450);
+        },
+        () => state.mode === 'colors' && state.colorSubMode === 'mix' && state.colorMixRound === r && !r.solved
+      );
     }
   }
 
@@ -476,15 +489,20 @@
       setTimeout(() => HMC.audio.SFX.cheep(), 200);
       HMC.effects.burstConfetti(30);
       HMC.effects.spawnFloatingWord(`🚂 对啦！${r.answer.zh}`, x, y - 24, r.answer.fill);
-      HMC.effects.awardStar();
+      const isParty = HMC.effects.awardStar();
       renderColorPatternSubMode(false);
-      HMC.audio.praiseWithPrompt(`真聪明！规律接龙成功，问号就是【${r.answer.zh}】！`, `Awesome! The missing color is ${r.answer.en}!`);
-      setTimeout(() => {
-        if (state.mode === 'colors' && state.colorSubMode === 'pattern') {
+      const praiseZh = `真聪明！规律接龙成功，问号就是【${r.answer.zh}】！`;
+      const praiseEn = `Awesome! The missing color is ${r.answer.en}!`;
+      if (isParty) HMC.audio.setPrompt(praiseZh, praiseEn, false);
+      else HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
+      HMC.audio.waitForSpeechThen(
+        1300,
+        () => {
           HMC.audio.SFX.cluck();
           renderColorPatternSubMode(true);
-        }
-      }, 2200);
+        },
+        () => state.mode === 'colors' && state.colorSubMode === 'pattern' && state.colorPatternRound === r
+      );
     } else {
       state.colorWrongCount++;
       HMC.audio.SFX.boing();

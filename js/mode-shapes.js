@@ -20,6 +20,9 @@
       SHAPE_SUB_ITEMS,
       sub,
       (nextSub) => {
+        if (HMC.audio && typeof HMC.audio.cancelPendingTransitions === 'function') {
+          HMC.audio.cancelPendingTransitions();
+        }
         state.shapeSubMode = nextSub;
         state.shapeLocked = false;
         HMC.audio.SFX.pop();
@@ -201,21 +204,27 @@
       HMC.storage.recordAttempt('shape_basic', isCorrect, target.zh);
     }
     if (isCorrect) {
+      const roundRef = state.shapeBasicRound;
       state.shapeLocked = true;
-      state.shapeBasicRound.hatched = true;
+      roundRef.hatched = true;
       HMC.audio.SFX.success();
       setTimeout(() => HMC.audio.SFX.cheep(), 200);
       HMC.effects.burstConfetti(26);
       HMC.effects.spawnFloatingWord(`⭐ 是${target.zh}！`, x, y - 24, target.color);
-      HMC.effects.awardStar();
+      const isParty = HMC.effects.awardStar();
       renderBasicShapeSubMode(false);
-      HMC.audio.praiseWithPrompt(`答对啦！这是【${target.zh}】！`, `Yes! It is a ${target.en}!`);
-      setTimeout(() => {
-        if (state.mode === 'shapes' && state.shapeSubMode === 'basic') {
+      const praiseZh = `答对啦！这是【${target.zh}】！`;
+      const praiseEn = `Yes! It is a ${target.en}!`;
+      if (isParty) HMC.audio.setPrompt(praiseZh, praiseEn, false);
+      else HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
+      HMC.audio.waitForSpeechThen(
+        1200,
+        () => {
           HMC.audio.SFX.cluck();
           renderBasicShapeSubMode(true);
-        }
-      }, 1950);
+        },
+        () => state.mode === 'shapes' && state.shapeSubMode === 'basic' && state.shapeBasicRound === roundRef
+      );
     } else {
       state.shapeWrongCount++;
       HMC.audio.SFX.boing();
@@ -322,15 +331,20 @@
       setTimeout(() => HMC.audio.SFX.cheep(), 200);
       HMC.effects.burstConfetti(32);
       HMC.effects.spawnFloatingWord(`🕵️ 找对啦！`, x, y - 24, r.targetColor.fill);
-      HMC.effects.awardStar();
+      const isParty = HMC.effects.awardStar();
       renderShapeClueSubMode(false);
-      HMC.audio.praiseWithPrompt(`太棒啦！所有线索全都答对，小侦探真厉害！`, `Super detective! You matched every clue!`);
-      setTimeout(() => {
-        if (state.mode === 'shapes' && state.shapeSubMode === 'clue') {
+      const praiseZh = '太棒啦！所有线索全都答对，小侦探真厉害！';
+      const praiseEn = 'Super detective! You matched every clue!';
+      if (isParty) HMC.audio.setPrompt(praiseZh, praiseEn, false);
+      else HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
+      HMC.audio.waitForSpeechThen(
+        1300,
+        () => {
           HMC.audio.SFX.cluck();
           renderShapeClueSubMode(true);
-        }
-      }, 2200);
+        },
+        () => state.mode === 'shapes' && state.shapeSubMode === 'clue' && state.shapeClueRound === r
+      );
     } else {
       state.shapeWrongCount++;
       HMC.audio.SFX.boing();
@@ -461,18 +475,24 @@
         state.shapeBuildWins++;
         renderShapeBuildSubMode(false);
         setTimeout(() => {
+          if (state.mode !== 'shapes' || state.shapeSubMode !== 'build' || state.shapeBuildRound !== r) return;
           HMC.audio.SFX.success();
           HMC.audio.SFX.cheep();
           HMC.effects.burstConfetti(34);
-          HMC.effects.awardStar();
-          HMC.audio.praiseWithPrompt(`哇！拼出了完整的【${r.bp.zh}】，你是小小建筑师！`, `Hooray! You built the ${r.bp.en}!`);
+          const isParty = HMC.effects.awardStar();
+          const praiseZh = `哇！拼出了完整的【${r.bp.zh}】，你是小小建筑师！`;
+          const praiseEn = `Hooray! You built the ${r.bp.en}!`;
+          if (isParty) HMC.audio.setPrompt(praiseZh, praiseEn, false);
+          else HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
+          HMC.audio.waitForSpeechThen(
+            1400,
+            () => {
+              HMC.audio.SFX.cluck();
+              renderShapeBuildSubMode(true);
+            },
+            () => state.mode === 'shapes' && state.shapeSubMode === 'build' && state.shapeBuildRound === r
+          );
         }, 160);
-        setTimeout(() => {
-          if (state.mode === 'shapes' && state.shapeSubMode === 'build') {
-            HMC.audio.SFX.cluck();
-            renderShapeBuildSubMode(true);
-          }
-        }, 2400);
       } else {
         renderShapeBuildSubMode(false);
         const leftNames = [...new Set(r.bp.parts.filter((_, i) => !r.filledMask[i]).map(p => SHAPE_BY_ID[p.shape].zh))];
@@ -563,18 +583,20 @@
       setTimeout(() => HMC.audio.SFX.cheep(), 200);
       HMC.effects.burstConfetti(30);
       HMC.effects.spawnFloatingWord(`🔎 找到了！${r.oddShape.zh}`, x, y - 24, r.oddShape.color);
-      HMC.effects.awardStar();
+      const isParty = HMC.effects.awardStar();
       renderShapeOddSubMode(false);
-      HMC.audio.praiseWithPrompt(
-        `太厉害啦！其他三个都是${r.commonShape.zh}，只有这个是【${r.oddShape.zh}】！`,
-        `Brilliant! Three are ${r.commonShape.en}, this one is ${r.oddShape.en}!`
-      );
-      setTimeout(() => {
-        if (state.mode === 'shapes' && state.shapeSubMode === 'odd') {
+      const praiseZh = `太厉害啦！其他三个都是${r.commonShape.zh}，只有这个是【${r.oddShape.zh}】！`;
+      const praiseEn = `Brilliant! Three are ${r.commonShape.en}, this one is ${r.oddShape.en}!`;
+      if (isParty) HMC.audio.setPrompt(praiseZh, praiseEn, false);
+      else HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
+      HMC.audio.waitForSpeechThen(
+        1300,
+        () => {
           HMC.audio.SFX.cluck();
           renderShapeOddSubMode(true);
-        }
-      }, 2300);
+        },
+        () => state.mode === 'shapes' && state.shapeSubMode === 'odd' && state.shapeOddRound === r
+      );
     } else {
       state.shapeWrongCount++;
       HMC.audio.SFX.boing();

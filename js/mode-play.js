@@ -21,7 +21,7 @@
 
   let demoTimer = null;
   let songCelebrateTimer = null;
-  let songResetTimer = null;
+  let songResetHandle = null;
   let isDemoPlaying = false;
   let demoStepIdx = -1;
   let songLocked = false;
@@ -66,10 +66,13 @@
       clearTimeout(songCelebrateTimer);
       songCelebrateTimer = null;
     }
-    if (songResetTimer) {
-      clearTimeout(songResetTimer);
-      songResetTimer = null;
+    if (songResetHandle) {
+      if (typeof songResetHandle.cancel === 'function') songResetHandle.cancel();
+      songResetHandle = null;
       HMC.state.pianoStep = 0;
+    }
+    if (HMC.audio && typeof HMC.audio.cancelPendingTransitions === 'function') {
+      HMC.audio.cancelPendingTransitions();
     }
     songLocked = false;
   }
@@ -174,9 +177,9 @@
       clearTimeout(songCelebrateTimer);
       songCelebrateTimer = null;
     }
-    if (songResetTimer) {
-      clearTimeout(songResetTimer);
-      songResetTimer = null;
+    if (songResetHandle) {
+      if (typeof songResetHandle.cancel === 'function') songResetHandle.cancel();
+      songResetHandle = null;
       HMC.state.pianoStep = 0;
       songLocked = false;
     }
@@ -249,24 +252,25 @@
           if (state.mode !== 'play' || state.playSubMode !== 'piano' || state.pianoSongId !== song.id) return;
           HMC.audio.SFX.fanfare();
           HMC.effects.burstConfetti(42);
-          HMC.effects.awardStar();
-          HMC.audio.praiseWithPrompt(
-            `太棒啦！你弹完了一整首《${song.zh}》！`,
-            `Bravo! You played the whole ${song.en} song!`
-          );
+          const isParty = HMC.effects.awardStar();
+          const praiseZh = `太棒啦！你弹完了一整首《${song.zh}》！`;
+          const praiseEn = `Bravo! You played the whole ${song.en} song!`;
+          if (isParty) HMC.audio.setPrompt(praiseZh, praiseEn, false);
+          else HMC.audio.praiseWithPrompt(praiseZh, praiseEn);
           document.querySelectorAll('.piano-chick-key').forEach((k, idx) => {
             setTimeout(() => animatePianoKey(k), idx * 65);
           });
+          songResetHandle = HMC.audio.waitForSpeechThen(
+            1400,
+            () => {
+              songResetHandle = null;
+              state.pianoStep = 0;
+              songLocked = false;
+              updatePianoCueAndProgress();
+            },
+            () => state.mode === 'play' && state.playSubMode === 'piano' && state.pianoSongId === song.id
+          );
         }, 160);
-
-        songResetTimer = setTimeout(() => {
-          songResetTimer = null;
-          state.pianoStep = 0;
-          songLocked = false;
-          if (state.mode === 'play' && state.playSubMode === 'piano') {
-            updatePianoCueAndProgress();
-          }
-        }, 1800);
       }
     }
     // Note: tapping a non-target note in guided mode still plays joyfully with ZERO punishment!
